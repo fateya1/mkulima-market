@@ -1,0 +1,222 @@
+# MkulimaMarket
+
+A digital marketplace connecting smallholder farmers in Kenya directly with buyers, eliminating intermediaries and maximizing farmer income potential.
+
+## Project Overview
+
+MkulimaMarket is a mobile-first digital platform designed to address critical market inefficiencies in Kenya's agricultural landscape. The platform connects farmers directly with buyers and transport providers, creating transparent markets that reward farmers fairly while improving food security and rural livelihoods.
+
+### Core Value Proposition
+
+- **For Farmers**: Direct access to diverse buyers, better prices, real-time market information, reduced post-harvest losses, mobile-friendly interface, secure payments via M-Pesa, and simplified logistics coordination.
+- **For Buyers**: Access to reliable suppliers, quality verification, aggregated volumes, digital payments, supplier ratings, and transport coordination.
+- **For Transporters**: Finding nearby transport opportunities, reducing empty return trips, guaranteed payments, optimized routes, and reputation building.
+
+## Project Architecture
+
+MkulimaMarket is built as a full-stack application with the following components:
+
+### Frontend
+
+- React.js for building the user interface
+- Progressive Web App (PWA) for mobile-first experience
+- Tailwind CSS for styling and responsive design
+- Redux for state management
+- Offline-first capabilities for rural areas with limited connectivity
+
+### Backend
+
+- Node.js/Express for the server-side application
+- PostgreSQL for structured relational data
+- MongoDB for document storage (listings, messages)
+- Redis for caching and session management
+- Authentication using JWT
+- API structure following RESTful principles
+
+### Integrations
+
+- M-Pesa for mobile money payments
+- SMS gateway for notifications
+- Google Maps API for location services
+- Weather data services
+
+## Getting Started
+
+### Prerequisites
+
+- Node.js (v18+ LTS recommended)
+- npm or yarn
+- PostgreSQL (v14+)
+- MongoDB (v6+)
+- Redis
+
+### Installation
+
+1. Clone the repository
+```
+git clone https://github.com/your-organization/mkulimamarket.git
+cd mkulimamarket
+```
+
+2. Install dependencies for both frontend and backend
+```
+# Install backend dependencies
+cd backend
+npm install
+
+# Install frontend dependencies
+cd ../frontend
+npm install
+```
+
+3. Set up environment variables
+   - Create `.env` files in both frontend and backend directories
+   - Use `.env.example` as a template for required environment variables
+
+4. Initialize the database
+```
+cd backend
+npm run db:migrate
+npm run db:seed
+```
+
+5. Start the development servers
+```
+# Start backend server
+cd backend
+npm run dev
+
+# In a new terminal, start frontend server
+cd frontend
+npm start
+```
+
+## Project Structure
+
+```
+mkulimamarket/
+├── backend/                # Node.js/Express API
+│   ├── config/             # Configuration files
+│   ├── controllers/        # API controllers
+│   ├── middleware/         # Express middleware
+│   ├── models/             # Database models
+│   ├── routes/             # API routes
+│   ├── services/           # Business logic
+│   ├── utils/              # Utility functions
+│   └── app.js              # Express application
+├── frontend/               # React.js application
+│   ├── public/             # Static assets
+│   └── src/
+│       ├── assets/         # Images, fonts, etc.
+│       ├── components/     # Reusable UI components
+│       ├── config/         # Frontend configuration
+│       ├── contexts/       # React contexts
+│       ├── hooks/          # Custom React hooks
+│       ├── layouts/        # Page layouts
+│       ├── pages/          # Page components
+│       ├── redux/          # Redux store, actions, reducers
+│       ├── services/       # API service functions
+│       ├── styles/         # Global styles
+│       ├── utils/          # Utility functions
+│       └── App.js          # Main App component
+└── docs/                   # Project documentation
+```
+
+## Key Features Implementation
+
+### User Authentication
+
+- Phone number verification via SMS OTP
+- Progressive verification level system (basic, standard, enhanced)
+- Role-based access control (farmers, buyers, transporters, admins)
+
+### Marketplace Functionality
+
+- Product listings with location, quality, quantity, and pricing information
+- Search and filter system with location-based discovery
+- Matching algorithm to connect relevant buyers and sellers
+- Inventory management for tracking produce quantities
+
+### Transaction Support
+
+- In-platform messaging with translation support
+- Price discovery tools based on current market data
+- Digital contracts and transaction recording
+- Rating and review system for trust building
+
+### Payment Integration
+
+- M-Pesa integration for secure mobile money transactions
+- Transaction verification and digital receipts
+- Escrow functionality for higher-value transactions
+- Split payment support for farmer cooperatives
+
+### Offline Capabilities
+
+- Service workers for offline functionality
+- Local data storage for operation without connectivity
+- Queued actions that sync when connectivity is restored
+- Offline maps for location functionality
+
+## Development Roadmap
+
+### Phase 1: Planning & Foundation
+- Project kickoff
+- Technical architecture documentation
+- UI/UX design system
+- Development environment setup
+
+### Phase 2: Core MVP Development
+- User management system
+- Basic profile functionality
+- Product listing capability
+- Simple search and discovery
+- M-Pesa payment integration
+
+### Phase 3: Feature Completion
+- Transaction management
+- Messaging system
+- Rating and feedback
+- Transport coordination
+- Basic market analytics
+
+### Phase 4: Testing & Refinement
+- QA testing
+- User acceptance testing
+- Performance optimization
+- Security audit
+- Bug fixes
+
+### Phase 5: Pilot Launch
+- Platform deployment
+- Initial user onboarding
+- Monitoring dashboard
+- Support system implementation
+- Analytics setup
+
+### Phase 6: National Expansion
+- Geographic expansion
+- Additional product categories
+- Enhanced analytics
+- Marketing campaign
+- Partner integration framework
+
+## Contributing
+
+Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details.
+
+## Acknowledgments
+
+- [Ministry of Agriculture, Livestock, Fisheries and Cooperatives](https://www.kilimo.go.ke/)
+- [Kenya Agricultural & Livestock Research Organization (KALRO)](https://www.kalro.org/)
+- [Nakuru County Cooperative Alliance](#)
+- [Kenya Private Sector Alliance (KEPSA)](https://kepsa.or.ke/)
+- [Equity Bank Kenya](https://equitygroupholdings.com/ke/)
+- [Kenya National Farmers' Federation (KENAFF)](https://www.kenaff.org/)
+- [Safaricom PLC](https://www.safaricom.co.ke/)
+- [FarmDrive Kenya Ltd](https://farmdrive.co.ke/)
+- [Machakos County Government](#)
