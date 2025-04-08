@@ -1,0 +1,1645 @@
+// File: backend/app.js
+const express = require('express');
+const cors = require('cors');
+const helmet = require('helmet');
+const morgan = require('morgan');
+const rateLimit = require('express-rate-limit');
+const compression = require('compression');
+const { errorHandler } = require('./middleware/errorHandler');
+const routes = require('./routes');
+const { connectDB } = require('./config/database');
+
+// Initialize express app
+const app = express();
+
+// Connect to databases
+connectDB();
+
+// Middleware
+app.use(cors());
+app.use(helmet());
+app.use(morgan('dev'));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(compression());
+
+// Rate limiting
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/', apiLimiter);
+
+// Routes
+app.use('/api/v1', routes);
+
+// Error handling
+app.use(errorHandler);
+
+// Start server
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
+
+module.exports = app;
+
+// File: backend/config/database.js
+const mongoose = require('mongoose');
+const { Pool } = require('pg');
+const Redis = require('ioredis');
+
+// PostgreSQL connection
+const pgPool = new Pool({
+  user: process.env.PG_USER,
+  host: process.env.PG_HOST,
+  database: process.env.PG_DATABASE,
+  password: process.env.PG_PASSWORD,
+  port: process.env.PG_PORT || 5432,
+});
+
+// MongoDB connection
+const connectMongo = async () => {
+  try {
+    await mongoose.connect(process.env.MONGO_URI, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+    });
+    console.log('MongoDB connected');
+  } catch (error) {
+    console.error(`MongoDB connection error: ${error.message}`);
+    process.exit(1);
+  }
+};
+
+// Redis connection
+const redisClient = new Redis({
+  host: process.env.REDIS_HOST || 'localhost',
+  port: process.env.REDIS_PORT || 6379,
+  password: process.env.REDIS_PASSWORD,
+});
+
+redisClient.on('connect', () => {
+  console.log('Redis connected');
+});
+
+redisClient.on('error', (err) => {
+  console.error(`Redis connection error: ${err.message}`);
+});
+
+// Connect all databases
+const connectDB = async () => {
+  try {
+    await connectMongo();
+    await pgPool.query('SELECT NOW()');
+    console.log('PostgreSQL connected');
+  } catch (error) {
+    console.error(`Database connection error: ${error.message}`);
+    process.exit(1);
+  }
+};
+
+module.exports = {
+  connectDB,
+  pgPool,
+  redisClient,
+};
+
+// File: backend/models/postgresql/User.js
+const { DataTypes } = require('sequelize');
+const bcrypt = require('bcryptjs');
+const sequelize = require('../../config/sequelize');
+
+const User = sequelize.define('User', {
+  id: {
+    type: DataTypes.UUID,
+    defaultValue: DataTypes.UUIDV4,
+    primaryKey: true,
+  },
+  phone_number: {
+    type: DataTypes.STRING(15),
+    allowNull: false,
+    unique: true,
+    validate: {
+      notEmpty: true,
+    },
+  },
+  email: {
+    type: DataTypes.STRING(100),
+    allowNull: true,
+    unique: true,
+    validate: {
+      isEmail: true,
+    },
+  },
+  full_name: {
+    type: DataTypes.STRING(100),
+    allowNull: false,
+    validate: {
+      notEmpty: true,
+    },
+  },
+  user_type: {
+    type: DataTypes.ENUM('farmer', 'buyer', 'transporter', 'admin'),
+    allowNull: false,
+  },
+  verification_level: {
+    type: DataTypes.ENUM('basic', 'standard', 'enhanced'),
+    defaultValue: 'basic',
+  },
+  password_hash: {
+    type: DataTypes.STRING(255),
+    allowNull: true,
+  },
+  last_active: {
+    type: DataTypes.DATE,
+  },
+  status: {
+    type: DataTypes.ENUM('active', 'inactive', 'suspended'),
+    defaultValue: 'active',
+  },
+  language_preference: {
+    type: DataTypes.STRING(10),
+    defaultValue: 'en',
+  },
+  firebase_uid: {
+    type: DataTypes.STRING(128),
+    allowNull: true,
+  },
+  profile_completion_percent: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0,
+  },
+  terms_accepted: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+  },
+  marketing_opt_in: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+  },
+}, {
+  timestamps: true,
+  createdAt: 'registration_date',
+  updatedAt: 'updated_at',
+  hooks: {
+    beforeCreate: async (user) => {
+      if (user.password_hash) {
+        const salt = await bcrypt.genSalt(10);
+        user.password_hash = await bcrypt.hash(user.password_hash, salt);
+      }
+    },
+    beforeUpdate: async (user) => {
+      if (user.changed('password_hash') && user.password_hash) {
+        const salt = await bcrypt.genSalt(10);
+        user.password_hash = await bcrypt.hash(user.password_hash, salt);
+      }
+    },
+  },
+});
+
+// Method to check password
+User.prototype.validatePassword = async function (password) {
+  return await bcrypt.compare(password, this.password_hash);
+};
+
+module.exports = User;
+
+// File: backend/models/postgresql/FarmerProfile.js
+const { DataTypes } = require('sequelize');
+const sequelize = require('../../config/sequelize');
+const User = require('./User');
+
+const FarmerProfile = sequelize.define('FarmerProfile', {
+  id: {
+    type: DataTypes.UUID,
+    defaultValue: DataTypes.UUIDV4,
+    primaryKey: true,
+  },
+  user_id: {
+    type: DataTypes.UUID,
+    allowNull: false,
+    references: {
+      model: User,
+      key: 'id',
+    },
+  },
+  farm_size: {
+    type: DataTypes.DECIMAL(10, 2),
+    allowNull: true,
+  },
+  farm_size_unit: {
+    type: DataTypes.ENUM('acres', 'hectares'),
+    allowNull: true,
+  },
+  farm_description: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+  },
+  primary_crops: {
+    type: DataTypes.JSONB,
+    allowNull: true,
+  },
+  typical_volume: {
+    type: DataTypes.JSONB,
+    allowNull: true,
+  },
+  harvest_seasons: {
+    type: DataTypes.JSONB,
+    allowNull: true,
+  },
+  cooperative_id: {
+    type: DataTypes.UUID,
+    allowNull: true,
+  },
+  farming_practices: {
+    type: DataTypes.JSONB,
+    allowNull: true,
+  },
+  certifications: {
+    type: DataTypes.JSONB,
+    allowNull: true,
+  },
+  profile_image_url: {
+    type: DataTypes.STRING(255),
+    allowNull: true,
+  },
+  has_storage: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+  },
+  has_transportation: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+  },
+  years_farming: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+  },
+}, {
+  timestamps: true,
+  createdAt: 'created_at',
+  updatedAt: 'updated_at',
+});
+
+FarmerProfile.belongsTo(User, { foreignKey: 'user_id' });
+User.hasOne(FarmerProfile, { foreignKey: 'user_id' });
+
+module.exports = FarmerProfile;
+
+// File: backend/models/mongodb/Listing.js
+const mongoose = require('mongoose');
+const Schema = mongoose.Schema;
+
+const ListingSchema = new Schema({
+  user_id: {
+    type: String,
+    required: true,
+    index: true,
+  },
+  product_id: {
+    type: String,
+    required: true,
+  },
+  title: {
+    type: String,
+    required: true,
+  },
+  description: {
+    type: String,
+    required: true,
+  },
+  quantity: {
+    value: {
+      type: Number,
+      required: true,
+    },
+    unit: {
+      type: String,
+      required: true,
+    },
+    remaining: {
+      type: Number,
+      required: true,
+    },
+  },
+  price: {
+    amount: {
+      type: Number,
+      required: true,
+    },
+    currency: {
+      type: String,
+      default: 'KES',
+    },
+    is_negotiable: {
+      type: Boolean,
+      default: true,
+    },
+    min_acceptable: {
+      type: Number,
+    },
+  },
+  quality: {
+    description: {
+      type: String,
+    },
+    attributes: {
+      type: Object,
+      default: {},
+    },
+    images: {
+      type: [String],
+    },
+  },
+  location: {
+    location_id: {
+      type: String,
+    },
+    display_precision: {
+      type: String,
+      enum: ['exact', 'ward', 'subcounty', 'county'],
+      default: 'ward',
+    },
+    coordinates: {
+      type: {
+        type: String,
+        enum: ['Point'],
+        default: 'Point',
+      },
+      coordinates: {
+        type: [Number], // [longitude, latitude]
+      },
+    },
+  },
+  availability: {
+    start_date: {
+      type: Date,
+      required: true,
+    },
+    end_date: {
+      type: Date,
+      required: true,
+    },
+    is_recurring: {
+      type: Boolean,
+      default: false,
+    },
+    recurrence_pattern: {
+      type: Object,
+      default: null,
+    },
+  },
+  status: {
+    type: String,
+    enum: ['active', 'draft', 'sold', 'expired', 'cancelled'],
+    default: 'active',
+  },
+  visibility: {
+    is_public: {
+      type: Boolean,
+      default: true,
+    },
+    restricted_to: {
+      type: [String],
+      default: [],
+    },
+  },
+  views: {
+    type: Number,
+    default: 0,
+  },
+  created_at: {
+    type: Date,
+    default: Date.now,
+  },
+  updated_at: {
+    type: Date,
+    default: Date.now,
+  },
+  expires_at: {
+    type: Date,
+    required: true,
+  },
+});
+
+// Create a geospatial index for location-based queries
+ListingSchema.index({ 'location.coordinates': '2dsphere' });
+
+module.exports = mongoose.model('Listing', ListingSchema);
+
+// File: backend/controllers/authController.js
+const jwt = require('jsonwebtoken');
+const { User } = require('../models/postgresql');
+const { sendSMS } = require('../services/smsService');
+const { redisClient } = require('../config/database');
+const { generateOTP } = require('../utils/otpGenerator');
+const catchAsync = require('../utils/catchAsync');
+const AppError = require('../utils/appError');
+
+// Register a new user
+exports.register = catchAsync(async (req, res, next) => {
+  const { phone_number, full_name, user_type, language_preference } = req.body;
+
+  // Check if user already exists
+  const existingUser = await User.findOne({ where: { phone_number } });
+  if (existingUser) {
+    return next(new AppError('Phone number already registered', 400));
+  }
+
+  // Create user with basic verification
+  const user = await User.create({
+    phone_number,
+    full_name,
+    user_type,
+    language_preference: language_preference || 'en',
+    verification_level: 'basic',
+    status: 'active',
+  });
+
+  // Generate and send OTP
+  const otp = generateOTP();
+  await redisClient.set(`otp:${phone_number}`, otp, 'EX', 600); // 10 minutes expiry
+
+  // Send OTP via SMS
+  try {
+    await sendSMS(
+      phone_number,
+      `Your MkulimaMarket verification code is: ${otp}. Valid for 10 minutes.`
+    );
+  } catch (error) {
+    console.error('SMS sending error:', error);
+    return next(new AppError('Failed to send verification code. Please try again.', 500));
+  }
+
+  res.status(201).json({
+    status: 'success',
+    message: 'User registered successfully. Please verify your phone number.',
+    data: {
+      user_id: user.id,
+      require_verification: true,
+    },
+  });
+});
+
+// Verify OTP and activate account
+exports.verifyOTP = catchAsync(async (req, res, next) => {
+  const { phone_number, otp } = req.body;
+
+  // Get stored OTP
+  const storedOTP = await redisClient.get(`otp:${phone_number}`);
+  if (!storedOTP) {
+    return next(new AppError('Verification code expired or invalid', 400));
+  }
+
+  // Validate OTP
+  if (storedOTP !== otp) {
+    return next(new AppError('Invalid verification code', 400));
+  }
+
+  // Find and update user
+  const user = await User.findOne({ where: { phone_number } });
+  if (!user) {
+    return next(new AppError('User not found', 404));
+  }
+
+  // Clear OTP
+  await redisClient.del(`otp:${phone_number}`);
+
+  // Generate JWT token
+  const token = jwt.sign(
+    { id: user.id, user_type: user.user_type },
+    process.env.JWT_SECRET,
+    { expiresIn: process.env.JWT_EXPIRES_IN }
+  );
+
+  res.status(200).json({
+    status: 'success',
+    message: 'Phone number verified successfully',
+    data: {
+      token,
+      user: {
+        id: user.id,
+        phone_number: user.phone_number,
+        full_name: user.full_name,
+        user_type: user.user_type,
+        verification_level: user.verification_level,
+      },
+    },
+  });
+});
+
+// Login user
+exports.login = catchAsync(async (req, res, next) => {
+  const { phone_number } = req.body;
+
+  // Find user
+  const user = await User.findOne({ where: { phone_number } });
+  if (!user) {
+    return next(new AppError('No user found with this phone number', 404));
+  }
+
+  // Generate and send OTP for login
+  const otp = generateOTP();
+  await redisClient.set(`otp:${phone_number}`, otp, 'EX', 600); // 10 minutes expiry
+
+  // Send OTP via SMS
+  try {
+    await sendSMS(
+      phone_number,
+      `Your MkulimaMarket login code is: ${otp}. Valid for 10 minutes.`
+    );
+  } catch (error) {
+    console.error('SMS sending error:', error);
+    return next(new AppError('Failed to send login code. Please try again.', 500));
+  }
+
+  res.status(200).json({
+    status: 'success',
+    message: 'Verification code sent to your phone',
+    data: {
+      require_verification: true,
+    },
+  });
+});
+
+// File: backend/controllers/listingController.js
+const { Listing } = require('../models/mongodb');
+const { User, Product } = require('../models/postgresql');
+const catchAsync = require('../utils/catchAsync');
+const AppError = require('../utils/appError');
+
+// Create a new listing
+exports.createListing = catchAsync(async (req, res, next) => {
+  const { 
+    product_id, 
+    title, 
+    description, 
+    quantity, 
+    price, 
+    quality, 
+    location, 
+    availability, 
+    visibility 
+  } = req.body;
+  
+  // Check if product exists
+  const product = await Product.findByPk(product_id);
+  if (!product) {
+    return next(new AppError('Product not found', 404));
+  }
+  
+  // Create listing
+  const listing = await Listing.create({
+    user_id: req.user.id,
+    product_id,
+    title,
+    description,
+    quantity: {
+      ...quantity,
+      remaining: quantity.value // Initially, remaining = total quantity
+    },
+    price,
+    quality,
+    location,
+    availability,
+    visibility: visibility || { is_public: true },
+    status: 'active',
+    expires_at: new Date(availability.end_date),
+  });
+  
+  res.status(201).json({
+    status: 'success',
+    data: {
+      id: listing._id,
+      user_id: listing.user_id,
+      product_id: listing.product_id,
+      title: listing.title,
+      status: listing.status,
+      created_at: listing.created_at,
+      expires_at: listing.expires_at,
+      view_url: `${process.env.FRONTEND_URL}/listings/${listing._id}`
+    }
+  });
+});
+
+// Get all listings with filters
+exports.getListings = catchAsync(async (req, res, next) => {
+  const { 
+    product_id, 
+    status, 
+    lat, 
+    lng, 
+    distance, 
+    min_price, 
+    max_price,
+    search,
+    page = 1,
+    limit = 20
+  } = req.query;
+  
+  // Build query
+  const query = {};
+  
+  // Filter by product
+  if (product_id) {
+    query.product_id = product_id;
+  }
+  
+  // Filter by status (default to active)
+  query.status = status || 'active';
+  
+  // Filter by price range
+  if (min_price || max_price) {
+    query.price = {};
+    if (min_price) query.price.amount = { $gte: parseFloat(min_price) };
+    if (max_price) query.price.amount = { ...query.price.amount, $lte: parseFloat(max_price) };
+  }
+  
+  // Filter by search term
+  if (search) {
+    query.$or = [
+      { title: { $regex: search, $options: 'i' } },
+      { description: { $regex: search, $options: 'i' } }
+    ];
+  }
+  
+  // Filter by location if coordinates provided
+  if (lat && lng && distance) {
+    query['location.coordinates'] = {
+      $near: {
+        $geometry: {
+          type: 'Point',
+          coordinates: [parseFloat(lng), parseFloat(lat)]
+        },
+        $maxDistance: parseInt(distance) * 1000 // Convert km to meters
+      }
+    };
+  }
+  
+  // Pagination
+  const skip = (page - 1) * limit;
+  
+  // Execute query
+  const listings = await Listing.find(query)
+    .sort({ created_at: -1 })
+    .skip(skip)
+    .limit(parseInt(limit));
+  
+  // Get total count for pagination
+  const totalListings = await Listing.countDocuments(query);
+  
+  res.status(200).json({
+    status: 'success',
+    results: listings.length,
+    pagination: {
+      total: totalListings,
+      page: parseInt(page),
+      limit: parseInt(limit),
+      pages: Math.ceil(totalListings / limit)
+    },
+    data: listings
+  });
+});
+
+// Get single listing
+exports.getListing = catchAsync(async (req, res, next) => {
+  const { id } = req.params;
+  
+  const listing = await Listing.findById(id);
+  
+  if (!listing) {
+    return next(new AppError('Listing not found', 404));
+  }
+  
+  // Increment view count
+  await Listing.findByIdAndUpdate(id, { $inc: { views: 1 } });
+  
+  // Get user details
+  const user = await User.findByPk(listing.user_id, {
+    attributes: ['id', 'full_name', 'verification_level', 'registration_date']
+  });
+  
+  // Get product details
+  const product = await Product.findByPk(listing.product_id, {
+    attributes: ['id', 'name', 'category_id', 'description']
+  });
+  
+  res.status(200).json({
+    status: 'success',
+    data: {
+      listing,
+      user,
+      product
+    }
+  });
+});
+
+// File: backend/middleware/authMiddleware.js
+const jwt = require('jsonwebtoken');
+const { User } = require('../models/postgresql');
+const AppError = require('../utils/appError');
+const catchAsync = require('../utils/catchAsync');
+
+exports.protect = catchAsync(async (req, res, next) => {
+  // Get token from header
+  let token;
+  if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+    token = req.headers.authorization.split(' ')[1];
+  }
+
+  if (!token) {
+    return next(new AppError('You are not logged in. Please log in to get access.', 401));
+  }
+
+  try {
+    // Verify token
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    // Check if user still exists
+    const currentUser = await User.findByPk(decoded.id);
+    if (!currentUser) {
+      return next(new AppError('The user belonging to this token no longer exists.', 401));
+    }
+
+    // Check if user is active
+    if (currentUser.status !== 'active') {
+      return next(new AppError('User account is not active. Please contact support.', 403));
+    }
+
+    // Update last active timestamp
+    await User.update(
+      { last_active: new Date() },
+      { where: { id: currentUser.id } }
+    );
+
+    // Grant access to protected route
+    req.user = currentUser;
+    next();
+  } catch (error) {
+    return next(new AppError('Invalid token. Please log in again.', 401));
+  }
+});
+
+// Restrict to certain user types
+exports.restrictTo = (...userTypes) => {
+  return (req, res, next) => {
+    if (!userTypes.includes(req.user.user_type)) {
+      return next(new AppError('You do not have permission to perform this action', 403));
+    }
+    next();
+  };
+};
+
+// Verify minimum verification level
+exports.requireVerificationLevel = (level) => {
+  const levels = ['basic', 'standard', 'enhanced'];
+  return (req, res, next) => {
+    const userLevel = req.user.verification_level;
+    const userLevelIndex = levels.indexOf(userLevel);
+    const requiredLevelIndex = levels.indexOf(level);
+    
+    if (userLevelIndex < requiredLevelIndex) {
+      return next(new AppError(`This action requires ${level} verification level. Your current level is ${userLevel}.`, 403));
+    }
+    next();
+  };
+};
+
+// File: backend/routes/index.js
+const express = require('express');
+const router = express.Router();
+
+const authRoutes = require('./authRoutes');
+const userRoutes = require('./userRoutes');
+const listingRoutes = require('./listingRoutes');
+const transactionRoutes = require('./transactionRoutes');
+const paymentRoutes = require('./paymentRoutes');
+const logisticsRoutes = require('./logisticsRoutes');
+const marketDataRoutes = require('./marketDataRoutes');
+
+router.use('/auth', authRoutes);
+router.use('/users
+// File: backend/routes/index.js (continued)
+router.use('/users', userRoutes);
+router.use('/listings', listingRoutes);
+router.use('/transactions', transactionRoutes);
+router.use('/payments', paymentRoutes);
+router.use('/logistics', logisticsRoutes);
+router.use('/market-data', marketDataRoutes);
+
+module.exports = router;
+
+// File: backend/routes/authRoutes.js
+const express = require('express');
+const router = express.Router();
+const authController = require('../controllers/authController');
+const { protect } = require('../middleware/authMiddleware');
+
+router.post('/register', authController.register);
+router.post('/verify-otp', authController.verifyOTP);
+router.post('/login', authController.login);
+router.post('/refresh-token', authController.refreshToken);
+router.post('/logout', protect, authController.logout);
+router.post('/reset-password', authController.resetPassword);
+router.post('/send-verification', authController.sendVerification);
+
+module.exports = router;
+
+// File: backend/routes/listingRoutes.js
+const express = require('express');
+const router = express.Router();
+const listingController = require('../controllers/listingController');
+const { protect, restrictTo } = require('../middleware/authMiddleware');
+
+// Public routes
+router.get('/', listingController.getListings);
+router.get('/nearby', listingController.getNearbyListings);
+router.get('/:id', listingController.getListing);
+
+// Protected routes
+router.post('/', protect, listingController.createListing);
+router.put('/:id', protect, listingController.updateListing);
+router.delete('/:id', protect, listingController.deleteListing);
+
+module.exports = router;
+
+// File: backend/services/mpesaService.js
+const axios = require('axios');
+const { redisClient } = require('../config/database');
+const AppError = require('../utils/appError');
+
+// Generate access token for M-Pesa API
+const generateAccessToken = async () => {
+  try {
+    // Check if token exists in Redis
+    const cachedToken = await redisClient.get('mpesa_access_token');
+    if (cachedToken) {
+      return cachedToken;
+    }
+
+    // If not, get a new token
+    const auth = Buffer.from(
+      `${process.env.MPESA_CONSUMER_KEY}:${process.env.MPESA_CONSUMER_SECRET}`
+    ).toString('base64');
+
+    const response = await axios({
+      method: 'get',
+      url: process.env.MPESA_TOKEN_URL,
+      headers: {
+        Authorization: `Basic ${auth}`,
+      },
+    });
+
+    const token = response.data.access_token;
+    
+    // Cache the token (expires in 1 hour, we cache for 55 minutes)
+    await redisClient.set('mpesa_access_token', token, 'EX', 55 * 60);
+    
+    return token;
+  } catch (error) {
+    console.error('Error generating M-Pesa access token:', error);
+    throw new AppError('Failed to connect to payment service', 500);
+  }
+};
+
+// Initiate STK Push
+exports.initiateSTKPush = async (phoneNumber, amount, accountReference, callbackUrl) => {
+  try {
+    const accessToken = await generateAccessToken();
+    
+    // Format phone number (remove + if present)
+    const formattedPhone = phoneNumber.replace('+', '');
+    
+    // Format timestamp
+    const timestamp = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14);
+    
+    // Generate password
+    const password = Buffer.from(
+      `${process.env.MPESA_SHORTCODE}${process.env.MPESA_PASSKEY}${timestamp}`
+    ).toString('base64');
+
+    // Make STK Push request
+    const response = await axios({
+      method: 'post',
+      url: process.env.MPESA_STK_URL,
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      data: {
+        BusinessShortCode: process.env.MPESA_SHORTCODE,
+        Password: password,
+        Timestamp: timestamp,
+        TransactionType: 'CustomerPayBillOnline',
+        Amount: Math.round(amount),
+        PartyA: formattedPhone,
+        PartyB: process.env.MPESA_SHORTCODE,
+        PhoneNumber: formattedPhone,
+        CallBackURL: callbackUrl,
+        AccountReference: accountReference,
+        TransactionDesc: 'MkulimaMarket payment',
+      },
+    });
+
+    return response.data;
+  } catch (error) {
+    console.error('STK Push error:', error.response?.data || error.message);
+    throw new AppError(
+      error.response?.data?.errorMessage || 'Failed to initiate payment',
+      error.response?.status || 500
+    );
+  }
+};
+
+// Process M-Pesa callback
+exports.processSTKCallback = async (callbackData) => {
+  try {
+    const resultCode = callbackData.Body.stkCallback.ResultCode;
+    const merchantRequestID = callbackData.Body.stkCallback.MerchantRequestID;
+    
+    if (resultCode === 0) {
+      // Payment successful
+      const callbackMetadata = callbackData.Body.stkCallback.CallbackMetadata.Item;
+      
+      // Extract payment details
+      const amountItem = callbackMetadata.find(item => item.Name === 'Amount');
+      const mpesaReceiptItem = callbackMetadata.find(item => item.Name === 'MpesaReceiptNumber');
+      const transactionDateItem = callbackMetadata.find(item => item.Name === 'TransactionDate');
+      const phoneNumberItem = callbackMetadata.find(item => item.Name === 'PhoneNumber');
+      
+      const paymentDetails = {
+        amount: amountItem?.Value,
+        mpesa_receipt: mpesaReceiptItem?.Value,
+        transaction_date: transactionDateItem?.Value,
+        phone_number: phoneNumberItem?.Value,
+        merchant_request_id: merchantRequestID,
+        status: 'completed',
+      };
+      
+      // Store transaction details in Redis for processing
+      // This will be picked up by the payment controller
+      await redisClient.set(
+        `mpesa_transaction:${merchantRequestID}`,
+        JSON.stringify(paymentDetails),
+        'EX',
+        3600 // 1 hour expiry
+      );
+      
+      return {
+        status: 'success',
+        data: paymentDetails,
+      };
+    } else {
+      // Payment failed
+      const failureDetails = {
+        merchant_request_id: merchantRequestID,
+        result_code: resultCode,
+        result_desc: callbackData.Body.stkCallback.ResultDesc,
+        status: 'failed',
+      };
+      
+      // Store failure details
+      await redisClient.set(
+        `mpesa_transaction:${merchantRequestID}`,
+        JSON.stringify(failureDetails),
+        'EX',
+        3600
+      );
+      
+      return {
+        status: 'failed',
+        data: failureDetails,
+      };
+    }
+  } catch (error) {
+    console.error('M-Pesa callback processing error:', error);
+    throw new AppError('Failed to process payment confirmation', 500);
+  }
+};
+
+// File: backend/controllers/transactionController.js
+const { Transaction, User, Product } = require('../models/postgresql');
+const { Listing } = require('../models/mongodb');
+const { mpesaService } = require('../services/mpesaService');
+const catchAsync = require('../utils/catchAsync');
+const AppError = require('../utils/appError');
+
+// Create a new transaction
+exports.createTransaction = catchAsync(async (req, res, next) => {
+  const {
+    listing_id,
+    quantity,
+    unit,
+    price_per_unit,
+    delivery_method,
+    pickup_location_id,
+    delivery_location_id,
+    scheduled_date,
+    notes,
+  } = req.body;
+
+  // Find the listing
+  const listing = await Listing.findById(listing_id);
+  if (!listing) {
+    return next(new AppError('Listing not found', 404));
+  }
+
+  // Check if the buyer is not the seller
+  if (listing.user_id === req.user.id) {
+    return next(new AppError('You cannot buy your own product', 400));
+  }
+
+  // Check if listing has enough quantity
+  if (listing.quantity.remaining < quantity) {
+    return next(new AppError('Insufficient quantity available', 400));
+  }
+
+  // Calculate total amount
+  const total_amount = price_per_unit * quantity;
+
+  // Create transaction
+  const transaction = await Transaction.create({
+    seller_id: listing.user_id,
+    buyer_id: req.user.id,
+    listing_id,
+    product_id: listing.product_id,
+    quantity,
+    unit,
+    price_per_unit,
+    total_amount,
+    currency: 'KES',
+    status: 'initiated',
+    payment_status: 'pending',
+    delivery_method,
+    pickup_location_id,
+    delivery_location_id,
+    scheduled_date,
+    notes,
+  });
+
+  // Update listing quantity
+  await Listing.findByIdAndUpdate(listing_id, {
+    $inc: { 'quantity.remaining': -quantity },
+    $set: { updated_at: new Date() },
+  });
+
+  // If listing is now out of stock, mark it as sold
+  if (listing.quantity.remaining - quantity <= 0) {
+    await Listing.findByIdAndUpdate(listing_id, {
+      $set: { status: 'sold', updated_at: new Date() },
+    });
+  }
+
+  res.status(201).json({
+    status: 'success',
+    data: {
+      transaction_id: transaction.id,
+      status: transaction.status,
+      created_at: transaction.created_at,
+    },
+  });
+});
+
+// Get transaction details
+exports.getTransaction = catchAsync(async (req, res, next) => {
+  const { id } = req.params;
+
+  // Find transaction
+  const transaction = await Transaction.findByPk(id, {
+    include: [
+      {
+        model: User,
+        as: 'seller',
+        attributes: ['id', 'full_name', 'phone_number', 'verification_level'],
+      },
+      {
+        model: User,
+        as: 'buyer',
+        attributes: ['id', 'full_name', 'phone_number', 'verification_level'],
+      },
+      {
+        model: Product,
+        attributes: ['id', 'name', 'description'],
+      },
+    ],
+  });
+
+  if (!transaction) {
+    return next(new AppError('Transaction not found', 404));
+  }
+
+  // Check if user is part of the transaction
+  if (transaction.seller_id !== req.user.id && transaction.buyer_id !== req.user.id) {
+    return next(new AppError('You do not have permission to view this transaction', 403));
+  }
+
+  // Get listing details
+  const listing = await Listing.findById(transaction.listing_id, {
+    fields: ['title', 'description', 'quality', 'location'],
+  });
+
+  res.status(200).json({
+    status: 'success',
+    data: {
+      transaction,
+      listing,
+    },
+  });
+});
+
+// Update transaction status
+exports.updateTransactionStatus = catchAsync(async (req, res, next) => {
+  const { id } = req.params;
+  const { status } = req.body;
+
+  // Valid status transitions
+  const validTransitions = {
+    initiated: ['agreed', 'cancelled'],
+    agreed: ['in_progress', 'cancelled'],
+    in_progress: ['completed', 'disputed'],
+    disputed: ['completed', 'cancelled'],
+  };
+
+  // Find transaction
+  const transaction = await Transaction.findByPk(id);
+  if (!transaction) {
+    return next(new AppError('Transaction not found', 404));
+  }
+
+  // Check if user is part of the transaction
+  if (transaction.seller_id !== req.user.id && transaction.buyer_id !== req.user.id) {
+    return next(new AppError('You do not have permission to update this transaction', 403));
+  }
+
+  // Check if the status transition is valid
+  if (!validTransitions[transaction.status]?.includes(status)) {
+    return next(new AppError(`Cannot transition from ${transaction.status} to ${status}`, 400));
+  }
+
+  // Specific permissions for status changes
+  if (status === 'agreed' && req.user.id !== transaction.seller_id) {
+    return next(new AppError('Only the seller can accept the transaction', 403));
+  }
+
+  if (status === 'completed' && req.user.id !== transaction.buyer_id) {
+    return next(new AppError('Only the buyer can mark the transaction as completed', 403));
+  }
+
+  // Update transaction
+  await transaction.update({ status });
+
+  res.status(200).json({
+    status: 'success',
+    data: {
+      transaction_id: transaction.id,
+      status: transaction.status,
+      updated_at: transaction.updated_at,
+    },
+  });
+});
+
+// File: backend/controllers/paymentController.js
+const { Payment, Transaction } = require('../models/postgresql');
+const { mpesaService } = require('../services/mpesaService');
+const { redisClient } = require('../config/database');
+const catchAsync = require('../utils/catchAsync');
+const AppError = require('../utils/appError');
+
+// Initiate payment
+exports.initiatePayment = catchAsync(async (req, res, next) => {
+  const { transaction_id, payment_method } = req.body;
+
+  // Find transaction
+  const transaction = await Transaction.findByPk(transaction_id);
+  if (!transaction) {
+    return next(new AppError('Transaction not found', 404));
+  }
+
+  // Check if user is the buyer
+  if (transaction.buyer_id !== req.user.id) {
+    return next(new AppError('You do not have permission to make payment for this transaction', 403));
+  }
+
+  // Check if transaction is in appropriate status
+  if (!['initiated', 'agreed'].includes(transaction.status)) {
+    return next(new AppError(`Cannot make payment for a transaction in ${transaction.status} status`, 400));
+  }
+
+  // Check if payment is already completed
+  if (transaction.payment_status === 'complete') {
+    return next(new AppError('Payment has already been completed for this transaction', 400));
+  }
+
+  // Create payment record
+  const payment = await Payment.create({
+    transaction_id,
+    payer_id: req.user.id,
+    recipient_id: transaction.seller_id,
+    amount: transaction.total_amount,
+    currency: transaction.currency,
+    payment_method,
+    status: 'initiated',
+    is_escrow: transaction.delivery_method === 'delivery', // Use escrow for delivery transactions
+  });
+
+  // If payment method is mpesa, initiate STK push
+  if (payment_method === 'mpesa') {
+    try {
+      // Get user's phone number
+      const user = await User.findByPk(req.user.id);
+      if (!user) {
+        return next(new AppError('User not found', 404));
+      }
+
+      // Construct callback URL
+      const callbackUrl = `${process.env.API_BASE_URL}/api/v1/payments/mpesa-callback`;
+
+      // Initiate STK push
+      const stkResponse = await mpesaService.initiateSTKPush(
+        user.phone_number,
+        transaction.total_amount,
+        transaction_id.toString(),
+        callbackUrl
+      );
+
+      // Update payment with M-Pesa request ID
+      await payment.update({
+        payment_reference: stkResponse.CheckoutRequestID,
+      });
+
+      return res.status(200).json({
+        status: 'success',
+        message: 'Payment initiated. Please complete on your phone.',
+        data: {
+          payment_id: payment.id,
+          checkout_request_id: stkResponse.CheckoutRequestID,
+        },
+      });
+    } catch (error) {
+      await payment.update({ status: 'failed' });
+      return next(new AppError(error.message, error.statusCode || 500));
+    }
+  } else if (payment_method === 'cash') {
+    // For cash payments, just record the intention
+    return res.status(200).json({
+      status: 'success',
+      message: 'Cash payment recorded. Please finalize payment during meetup.',
+      data: {
+        payment_id: payment.id,
+      },
+    });
+  } else {
+    return next(new AppError('Unsupported payment method', 400));
+  }
+});
+
+// Check payment status
+exports.checkPaymentStatus = catchAsync(async (req, res, next) => {
+  const { payment_id } = req.params;
+
+  // Find payment
+  const payment = await Payment.findByPk(payment_id);
+  if (!payment) {
+    return next(new AppError('Payment not found', 404));
+  }
+
+  // Check if user is part of the transaction
+  const transaction = await Transaction.findByPk(payment.transaction_id);
+  if (!transaction) {
+    return next(new AppError('Associated transaction not found', 404));
+  }
+
+  if (transaction.buyer_id !== req.user.id && transaction.seller_id !== req.user.id) {
+    return next(new AppError('You do not have permission to check this payment', 403));
+  }
+
+  // If payment was via M-Pesa, check Redis for callback data
+  if (payment.payment_method === 'mpesa' && payment.payment_reference) {
+    const mpesaData = await redisClient.get(`mpesa_transaction:${payment.payment_reference}`);
+    
+    if (mpesaData) {
+      const mpesaTransaction = JSON.parse(mpesaData);
+      
+      // If payment succeeded, update payment record
+      if (mpesaTransaction.status === 'completed' && payment.status !== 'completed') {
+        await payment.update({
+          status: 'completed',
+          mpesa_receipt_number: mpesaTransaction.mpesa_receipt,
+          payment_date: new Date(),
+        });
+        
+        // Also update transaction
+        await transaction.update({
+          payment_status: 'complete',
+          status: transaction.status === 'initiated' ? 'agreed' : transaction.status,
+        });
+      } else if (mpesaTransaction.status === 'failed' && payment.status !== 'failed') {
+        await payment.update({
+          status: 'failed',
+          notes: mpesaTransaction.result_desc,
+        });
+      }
+    }
+  }
+
+  res.status(200).json({
+    status: 'success',
+    data: {
+      payment_id: payment.id,
+      transaction_id: payment.transaction_id,
+      amount: payment.amount,
+      currency: payment.currency,
+      status: payment.status,
+      payment_method: payment.payment_method,
+      payment_date: payment.payment_date,
+      is_escrow: payment.is_escrow,
+      escrow_released: payment.escrow_released_at !== null,
+    },
+  });
+});
+
+// File: backend/controllers/logisticsController.js
+const { User, Transaction } = require('../models/postgresql');
+const { TransporterProfile } = require('../models/postgresql');
+const { TransportRequest } = require('../models/postgresql');
+const catchAsync = require('../utils/catchAsync');
+const AppError = require('../utils/appError');
+
+// Find nearby transporters
+exports.findNearbyTransporters = catchAsync(async (req, res, next) => {
+  const { lat, lng, distance = 20, vehicle_type } = req.query;
+
+  if (!lat || !lng) {
+    return next(new AppError('Location coordinates are required', 400));
+  }
+
+  // Build query
+  const query = {
+    where: {},
+    include: [
+      {
+        model: User,
+        attributes: ['id', 'full_name', 'phone_number', 'verification_level'],
+      },
+    ],
+  };
+
+  // Filter by vehicle type if provided
+  if (vehicle_type) {
+    query.where.vehicle_type = vehicle_type;
+  }
+
+  // Find transporters
+  const transporters = await TransporterProfile.findAll(query);
+
+  // Filter by distance (doing this in-memory for simplicity)
+  // In a production environment, use PostGIS or MongoDB's geospatial queries
+  const nearbyTransporters = transporters.filter(transporter => {
+    // Calculate distance between points using Haversine formula
+    const transporterLat = transporter.location.coordinates[1];
+    const transporterLng = transporter.location.coordinates[0];
+    
+    const earthRadius = 6371; // km
+    const dLat = (transporterLat - lat) * Math.PI / 180;
+    const dLng = (transporterLng - lng) * Math.PI / 180;
+    
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(lat * Math.PI / 180) * Math.cos(transporterLat * Math.PI / 180) * 
+      Math.sin(dLng/2) * Math.sin(dLng/2);
+    
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    const calculatedDistance = earthRadius * c;
+    
+    return calculatedDistance <= distance;
+  });
+
+  res.status(200).json({
+    status: 'success',
+    results: nearbyTransporters.length,
+    data: nearbyTransporters,
+  });
+});
+
+// Create transport request
+exports.createTransportRequest = catchAsync(async (req, res, next) => {
+  const {
+    transaction_id,
+    pickup_location,
+    delivery_location,
+    product_details,
+    weight,
+    volume,
+    scheduled_date,
+    notes,
+    offered_amount,
+  } = req.body;
+
+  // Check if transaction exists and user is part of it
+  if (transaction_id) {
+    const transaction = await Transaction.findByPk(transaction_id);
+    if (!transaction) {
+      return next(new AppError('Transaction not found', 404));
+    }
+
+    if (transaction.buyer_id !== req.user.id && transaction.seller_id !== req.user.id) {
+      return next(new AppError('You do not have permission to create transport request for this transaction', 403));
+    }
+  }
+
+  // Create transport request
+  const transportRequest = await TransportRequest.create({
+    requester_id: req.user.id,
+    transaction_id,
+    pickup_location,
+    delivery_location,
+    product_details,
+    weight,
+    volume,
+    scheduled_date,
+    notes,
+    offered_amount,
+    status: 'open',
+  });
+
+  res.status(201).json({
+    status: 'success',
+    data: {
+      request_id: transportRequest.id,
+      status: transportRequest.status,
+      created_at: transportRequest.created_at,
+    },
+  });
+});
+
+// File: backend/utils/appError.js
+class AppError extends Error {
+  constructor(message, statusCode) {
+    super(message);
+    
+    this.statusCode = statusCode;
+    this.status = `${statusCode}`.startsWith('4') ? 'fail' : 'error';
+    this.isOperational = true;
+    
+    Error.captureStackTrace(this, this.constructor);
+  }
+}
+
+module.exports = AppError;
+
+// File: backend/utils/catchAsync.js
+module.exports = fn => {
+  return (req, res, next) => {
+    fn(req, res, next).catch(next);
+  };
+};
+
+// File: backend/middleware/errorHandler.js
+const AppError = require('../utils/appError');
+
+// Handle duplicate field error from PostgreSQL
+const handleDuplicateFieldsDB = (err) => {
+  const field = err.detail.match(/Key \((.*?)\)=/)[1];
+  const message = `Duplicate field value: ${field}. Please use another value!`;
+  return new AppError(message, 400);
+};
+
+// Handle validation error from Sequelize
+const handleSequelizeValidationError = (err) => {
+  const errors = Object.values(err.errors).map(el => el.message);
+  const message = `Invalid input data. ${errors.join('. ')}`;
+  return new AppError(message, 400);
+};
+
+// Handle JWT errors
+const handleJWTError = () => {
+  return new AppError('Invalid token. Please log in again!', 401);
+};
+
+const handleJWTExpiredError = () => {
+  return new AppError('Your token has expired. Please log in again!', 401);
+};
+
+// Send error response in development
+const sendErrorDev = (err, res) => {
+  res.status(err.statusCode).json({
+    status: err.status,
+    message: err.message,
+    error: err,
+    stack: err.stack,
+  });
+};
+
+// Send error response in production
+const sendErrorProd = (err, res) => {
+  // Operational, trusted error: send message to client
+  if (err.isOperational) {
+    res.status(err.statusCode).json({
+      status: err.status,
+      message: err.message,
+    });
+  } 
+  // Programming or other unknown error: don't leak error details
+  else {
+    console.error('ERROR 💥', err);
+    res.status(500).json({
+      status: 'error',
+      message: 'Something went wrong',
+    });
+  }
+};
+
+// Main error handling middleware
+exports.errorHandler = (err, req, res, next) => {
+  err.statusCode = err.statusCode || 500;
+  err.status = err.status || 'error';
+  
+  if (process.env.NODE_ENV === 'development') {
+    sendErrorDev(err, res);
+  } else if (process.env.NODE_ENV === 'production') {
+    let error = Object.create(err);
+    
+    // Handle specific errors
+    if (error.name === 'SequelizeUniqueConstraintError') error = handleDuplicateFieldsDB(error);
+    if (error.name === 'SequelizeValidationError') error = handleSequelizeValidationError(error);
+    if (error.name === 'JsonWebTokenError') error = handleJWTError();
+    if (error.name === 'TokenExpiredError') error = handleJWTExpiredError();
+    
+    sendErrorProd(error, res);
+  }
+};
+
+// File: backend/services/smsService.js
+const axios = require('axios');
+const AppError = require('../utils/appError');
+
+// Send SMS using Africa's Talking API
+exports.sendSMS = async (phoneNumber, message) => {
+  try {
+    // Format phone number (ensure it starts with country code)
+    let formattedPhone = phoneNumber;
+    if (!formattedPhone.startsWith('+')) {
+      formattedPhone = '+' + formattedPhone;
+    }
+    
+    // If not starting with +254 (Kenya), add it
+    if (!formattedPhone.startsWith('+254')) {
+      // Remove leading 0 if present
+      if (formattedPhone.startsWith('+0')) {
+        formattedPhone = '+254' + formattedPhone.substring(2);
+      } else if (formattedPhone.startsWith('0')) {
+        formattedPhone = '+254' + formattedPhone.substring(1);
+      }
+    }
+    
+    // Make API request to Africa's Talking
+    const response = await axios({
+      method: 'post',
+      url: process.env.AT_SMS_URL,
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'apiKey': process.env.AT_API_KEY,
+        'Accept': 'application/json',
+      },
+      data: new URLSearchParams({
+        'username': process.env.AT_USERNAME,
+        'to': formattedPhone,
+        'message': message,
+      }),
+    });
+    
+    // Check for SMS sending failures
+    if (response.data.SMSMessageData.Recipients[0].status !== 'Success') {
+      throw new Error(response.data.SMSMessageData.Recipients[0].statusDescription);
+    }
+    
+    return {
+      status: 'success',
+      messageId: response.data.SMSMessageData.Recipients[0].messageId,
+    };
+  } catch (error) {
+    console.error('SMS sending error:', error);
+    throw new AppError('Failed to send SMS. Please try again.', 500);
+  }
+};
+
+// File: backend/utils/otpGenerator.js
+const crypto = require('crypto');
+
+// Generate a 6-digit OTP
+exports.generateOTP = () => {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+};
+
+// Generate a more secure OTP if needed
+exports.generateSecureOTP = () => {
+  return crypto.randomInt(100000, 999999).toString();
+};
+
+// Verify if OTP is valid
+exports.isValidOTP = (inputOTP, storedOTP) => {
+  return inputOTP === storedOTP;
+};
