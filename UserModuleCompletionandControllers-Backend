@@ -1,0 +1,365 @@
+// Continuing the user service implementation
+// src/users/services/users.service.ts (continued)
+
+  // Create a location for a user
+  async createLocation(userId: string, createLocationDto: CreateLocationDto): Promise<Location> {
+    // Ensure user exists
+    await this.findById(userId);
+
+    // If this is set as primary, update other locations to non-primary
+    if (createLocationDto.isPrimary) {
+      await this.locationRepository.update(
+        { userId, isPrimary: true },
+        { isPrimary: false }
+      );
+    }
+
+    // Create and save the location
+    const location = this.locationRepository.create({
+      userId,
+      ...createLocationDto
+    });
+
+    const savedLocation = await this.locationRepository.save(location);
+
+    // If this is the first location, update the user's locationId
+    const user = await this.findById(userId);
+    if (!user.locationId) {
+      await this.usersRepository.update(userId, { locationId: savedLocation.id });
+    }
+
+    // Update profile completion percentage
+    await this.updateProfileCompletionPercentage(userId);
+
+    return savedLocation;
+  }
+
+  // Get a user's profile based on their type
+  async getUserProfile(userId: string): Promise<any> {
+    const user = await this.findById(userId);
+    
+    let profile;
+    switch (user.userType) {
+      case UserType.FARMER:
+        profile = await this.farmerProfileRepository.findOne({ where: { userId } });
+        break;
+      case UserType.BUYER:
+        profile = await this.buyerProfileRepository.findOne({ where: { userId } });
+        break;
+      case UserType.TRANSPORTER:
+        profile = await this.transporterProfileRepository.findOne({ where: { userId } });
+        break;
+      default:
+        return null;
+    }
+    
+    return profile;
+  }
+
+  // Get user's locations
+  async getUserLocations(userId: string): Promise<Location[]> {
+    // Ensure user exists
+    await this.findById(userId);
+    
+    return this.locationRepository.find({ 
+      where: { userId },
+      order: { isPrimary: 'DESC', createdAt: 'DESC' }  
+    });
+  }
+
+  // Calculate and update profile completion percentage
+  async updateProfileCompletionPercentage(userId: string): Promise<void> {
+    const user = await this.findById(userId);
+    let completionPercentage = 0;
+    let requiredFields = 0;
+    let completedFields = 0;
+
+    // Basic user info
+    const userRequiredFields = ['fullName', 'phoneNumber', 'userType'];
+    requiredFields += userRequiredFields.length;
+    userRequiredFields.forEach(field => {
+      if (user[field]) completedFields++;
+    });
+
+    // Check for profile existence
+    let profile = await this.getUserProfile(userId);
+    if (profile) {
+      completedFields++;
+    }
+    requiredFields++;
+
+    // Check for location
+    const locations = await this.getUserLocations(userId);
+    if (locations && locations.length > 0) {
+      completedFields++;
+    }
+    requiredFields++;
+
+    // Special fields based on user type
+    if (profile) {
+      const typeSpecificFields = [];
+      
+      switch(user.userType) {
+        case UserType.FARMER:
+          typeSpecificFields.push(
+            'farmSize', 
+            'farmSizeUnit', 
+            'primaryCrops', 
+            'harvestSeasons'
+          );
+          break;
+        case UserType.BUYER:
+          typeSpecificFields.push(
+            'businessName', 
+            'businessType', 
+            'preferredProducts', 
+            'paymentTerms'
+          );
+          break;
+        case UserType.TRANSPORTER:
+          typeSpecificFields.push(
+            'vehicleType', 
+            'vehicleCapacity', 
+            'capacityUnit', 
+            'serviceAreas'
+          );
+          break;
+      }
+      
+      requiredFields += typeSpecificFields.length;
+      typeSpecificFields.forEach(field => {
+        if (profile[field]) completedFields++;
+      });
+    }
+
+    // Calculate percentage
+    completionPercentage = Math.floor((completedFields / requiredFields) * 100);
+    
+    // Update user profile completion percentage
+    await this.usersRepository.update(userId, { profileCompletionPercent: completionPercentage });
+  }
+
+  // Update user's verification level
+  async updateVerificationLevel(userId: string, verificationLevel: VerificationLevel): Promise<User> {
+    const user = await this.findById(userId);
+    user.verificationLevel = verificationLevel;
+    return this.usersRepository.save(user);
+  }
+
+  // Update user's last active timestamp
+  async updateLastActive(userId: string): Promise<void> {
+    await this.usersRepository.update(userId, { lastActive: new Date() });
+  }
+}
+
+// src/users/controllers/users.controller.ts
+import { 
+  Controller, 
+  Get, 
+  Post, 
+  Body, 
+  Param, 
+  Put, 
+  UseGuards,
+  Request,
+  NotFoundException,
+  BadRequestException,
+  UnauthorizedException
+} from '@nestjs/common';
+import { 
+  ApiBearerAuth, 
+  ApiTags, 
+  ApiOperation, 
+  ApiCreatedResponse, 
+  ApiOkResponse, 
+  ApiUnauthorizedResponse,
+  ApiNotFoundResponse,
+  ApiBadRequestResponse
+} from '@nestjs/swagger';
+import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
+import { UsersService } from '../services/users.service';
+import { CreateUserDto } from '../dtos/create-user.dto';
+import { CreateFarmerProfileDto } from '../dtos/create-farmer-profile.dto';
+import { CreateBuyerProfileDto } from '../dtos/create-buyer-profile.dto';
+import { CreateTransporterProfileDto } from '../dtos/create-transporter-profile.dto';
+import { CreateLocationDto } from '../dtos/create-location.dto';
+import { UserType } from '../enums/user-type.enum';
+import { Public } from '../../auth/decorators/public.decorator';
+
+@ApiTags('users')
+@Controller('users')
+export class UsersController {
+  constructor(private readonly usersService: UsersService) {}
+
+  @Public()
+  @Post()
+  @ApiOperation({ summary: 'Create a new user' })
+  @ApiCreatedResponse({ description: 'User successfully created' })
+  @ApiBadRequestResponse({ description: 'Invalid input data' })
+  async create(@Body() createUserDto: CreateUserDto) {
+    return this.usersService.create(createUserDto);
+  }
+
+  @ApiBearerAuth()
+  @Get('profile')
+  @ApiOperation({ summary: 'Get current user profile' })
+  @ApiOkResponse({ description: 'Returns the current user profile' })
+  @ApiUnauthorizedResponse({ description: 'User is not authenticated' })
+  async getProfile(@Request() req) {
+    const userId = req.user.id;
+    const user = await this.usersService.findById(userId);
+    const profile = await this.usersService.getUserProfile(userId);
+    const locations = await this.usersService.getUserLocations(userId);
+    
+    // Update last active timestamp
+    await this.usersService.updateLastActive(userId);
+    
+    return {
+      user,
+      profile,
+      locations
+    };
+  }
+
+  @ApiBearerAuth()
+  @Post('farmer-profile')
+  @ApiOperation({ summary: 'Create a farmer profile for current user' })
+  @ApiCreatedResponse({ description: 'Farmer profile successfully created' })
+  @ApiUnauthorizedResponse({ description: 'User is not authenticated' })
+  @ApiBadRequestResponse({ description: 'User is not a farmer or profile already exists' })
+  async createFarmerProfile(
+    @Request() req,
+    @Body() createFarmerProfileDto: CreateFarmerProfileDto
+  ) {
+    const userId = req.user.id;
+    const user = await this.usersService.findById(userId);
+    
+    if (user.userType !== UserType.FARMER) {
+      throw new BadRequestException('User is not registered as a farmer');
+    }
+    
+    return this.usersService.createFarmerProfile(userId, createFarmerProfileDto);
+  }
+
+  @ApiBearerAuth()
+  @Post('buyer-profile')
+  @ApiOperation({ summary: 'Create a buyer profile for current user' })
+  @ApiCreatedResponse({ description: 'Buyer profile successfully created' })
+  @ApiUnauthorizedResponse({ description: 'User is not authenticated' })
+  @ApiBadRequestResponse({ description: 'User is not a buyer or profile already exists' })
+  async createBuyerProfile(
+    @Request() req,
+    @Body() createBuyerProfileDto: CreateBuyerProfileDto
+  ) {
+    const userId = req.user.id;
+    const user = await this.usersService.findById(userId);
+    
+    if (user.userType !== UserType.BUYER) {
+      throw new BadRequestException('User is not registered as a buyer');
+    }
+    
+    return this.usersService.createBuyerProfile(userId, createBuyerProfileDto);
+  }
+
+  @ApiBearerAuth()
+  @Post('transporter-profile')
+  @ApiOperation({ summary: 'Create a transporter profile for current user' })
+  @ApiCreatedResponse({ description: 'Transporter profile successfully created' })
+  @ApiUnauthorizedResponse({ description: 'User is not authenticated' })
+  @ApiBadRequestResponse({ description: 'User is not a transporter or profile already exists' })
+  async createTransporterProfile(
+    @Request() req,
+    @Body() createTransporterProfileDto: CreateTransporterProfileDto
+  ) {
+    const userId = req.user.id;
+    const user = await this.usersService.findById(userId);
+    
+    if (user.userType !== UserType.TRANSPORTER) {
+      throw new BadRequestException('User is not registered as a transporter');
+    }
+    
+    return this.usersService.createTransporterProfile(userId, createTransporterProfileDto);
+  }
+
+  @ApiBearerAuth()
+  @Post('locations')
+  @ApiOperation({ summary: 'Add a location for current user' })
+  @ApiCreatedResponse({ description: 'Location successfully added' })
+  @ApiUnauthorizedResponse({ description: 'User is not authenticated' })
+  async addLocation(
+    @Request() req,
+    @Body() createLocationDto: CreateLocationDto
+  ) {
+    const userId = req.user.id;
+    return this.usersService.createLocation(userId, createLocationDto);
+  }
+
+  @ApiBearerAuth()
+  @Get('locations')
+  @ApiOperation({ summary: 'Get all locations for current user' })
+  @ApiOkResponse({ description: 'Returns all user locations' })
+  @ApiUnauthorizedResponse({ description: 'User is not authenticated' })
+  async getLocations(@Request() req) {
+    const userId = req.user.id;
+    return this.usersService.getUserLocations(userId);
+  }
+  
+  @ApiBearerAuth()
+  @Get(':id/public-profile')
+  @ApiOperation({ summary: 'Get public profile of a user' })
+  @ApiOkResponse({ description: 'Returns the public profile of a user' })
+  @ApiNotFoundResponse({ description: 'User not found' })
+  @ApiUnauthorizedResponse({ description: 'User is not authenticated' })
+  async getPublicProfile(@Param('id') id: string) {
+    const user = await this.usersService.findById(id);
+    
+    // Only return non-sensitive information
+    const publicUser = {
+      id: user.id,
+      fullName: user.fullName,
+      userType: user.userType,
+      verificationLevel: user.verificationLevel,
+      profileCompletionPercent: user.profileCompletionPercent,
+      registrationDate: user.registrationDate
+    };
+    
+    const profile = await this.usersService.getUserProfile(id);
+    
+    // Get primary location only
+    const locations = await this.usersService.getUserLocations(id);
+    const primaryLocation = locations.find(loc => loc.isPrimary) || locations[0];
+    
+    return {
+      user: publicUser,
+      profile,
+      primaryLocation
+    };
+  }
+}
+
+// src/users/users.module.ts
+import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { UsersController } from './controllers/users.controller';
+import { UsersService } from './services/users.service';
+import { User } from './entities/user.entity';
+import { FarmerProfile } from './entities/farmer-profile.entity';
+import { BuyerProfile } from './entities/buyer-profile.entity';
+import { TransporterProfile } from './entities/transporter-profile.entity';
+import { Location } from './entities/location.entity';
+
+@Module({
+  imports: [
+    TypeOrmModule.forFeature([
+      User, 
+      FarmerProfile, 
+      BuyerProfile, 
+      TransporterProfile, 
+      Location
+    ]),
+  ],
+  controllers: [UsersController],
+  providers: [UsersService],
+  exports: [UsersService],
+})
+export class UsersModule {}
