@@ -1,0 +1,932 @@
+// src/listings/entities/product-category.entity.ts
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+@Entity('product_categories')
+export class ProductCategory {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+  @Column()
+  name: string;
+  @Column({ nullable: true })
+  description: string;
+  @Column({ nullable: true })
+  imageUrl: string;
+  @Column({ default: true })
+  isActive: boolean;
+  @CreateDateColumn()
+  createdAt: Date;
+  @UpdateDateColumn()
+  updatedAt: Date;
+}
+// src/listings/entities/product.entity.ts
+import { 
+  Entity, 
+  Column, 
+  PrimaryGeneratedColumn, 
+  ManyToOne, 
+  JoinColumn,
+  CreateDateColumn, 
+  UpdateDateColumn 
+} from 'typeorm';
+import { ProductCategory } from './product-category.entity';
+@Entity('products')
+export class Product {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+  @Column()
+  categoryId: string;
+  @ManyToOne(() => ProductCategory)
+  @JoinColumn({ name: 'categoryId' })
+  category: ProductCategory;
+  @Column()
+  name: string;
+  @Column({ type: 'text', nullable: true })
+  description: string;
+  @Column({ type: 'jsonb', nullable: true })
+  unitTypes: any;
+  @Column({ type: 'jsonb', nullable: true })
+  qualityAttributes: any;
+  @Column({ nullable: true })
+  imageUrl: string;
+  @Column({ default: true })
+  isActive: boolean;
+  @CreateDateColumn()
+  createdAt: Date;
+  @UpdateDateColumn()
+  updatedAt: Date;
+}
+// src/listings/entities/listing.entity.ts - Using MongoDB approach as per documentation
+import { Schema, Prop, SchemaFactory } from '@nestjs/mongoose';
+import { Document, Types } from 'mongoose';
+import { ListingStatus } from '../enums/listing-status.enum';
+@Schema({ timestamps: true })
+export class Listing extends Document {
+  @Prop({ required: true })
+  userId: string;
+  @Prop({ required: true })
+  productId: string;
+  @Prop({ required: true })
+  title: string;
+  @Prop()
+  description: string;
+  @Prop({ type: Object, required: true })
+  quantity: {
+    value: number;
+    unit: string;
+    remaining: number;
+// src/listings/entities/listing.entity.ts - Continuing from the previous code
+import { Schema, Prop, SchemaFactory } from '@nestjs/mongoose';
+import { Document, Types } from 'mongoose';
+import { ListingStatus } from '../enums/listing-status.enum';
+
+@Schema({ timestamps: true })
+export class Listing extends Document {
+  @Prop({ required: true })
+  userId: string;
+
+  @Prop({ required: true })
+  productId: string;
+
+  @Prop({ required: true })
+  title: string;
+
+  @Prop()
+  description: string;
+
+  @Prop({ type: Object, required: true })
+  quantity: {
+    value: number;
+    unit: string;
+    remaining: number;
+  };
+
+  @Prop({ type: Object, required: true })
+  price: {
+    amount: number;
+    currency: string;
+    isNegotiable: boolean;
+    minAcceptable?: number;
+  };
+
+  @Prop({ type: Object })
+  quality: {
+    description: string;
+    attributes: Record<string, any>;
+    images: string[];
+  };
+
+  @Prop({ type: Object, required: true })
+  location: {
+    locationId: string;
+    displayPrecision: string;
+    coordinates: {
+      type: { type: String, default: 'Point' };
+      coordinates: [number, number];
+    };
+  };
+
+  @Prop({ type: Object, required: true })
+  availability: {
+    startDate: Date;
+    endDate: Date;
+    isRecurring: boolean;
+    recurrencePattern?: Record<string, any>;
+  };
+
+  @Prop({ type: String, enum: ListingStatus, default: ListingStatus.ACTIVE })
+  status: string;
+
+  @Prop({ type: Object, default: { isPublic: true } })
+  visibility: {
+    isPublic: boolean;
+    restrictedTo?: string[];
+  };
+
+  @Prop({ default: 0 })
+  views: number;
+
+  @Prop()
+  createdAt: Date;
+
+  @Prop()
+  updatedAt: Date;
+
+  @Prop()
+  expiresAt: Date;
+}
+
+export const ListingSchema = SchemaFactory.createForClass(Listing);
+
+// Add index for geospatial queries
+ListingSchema.index({ 'location.coordinates': '2dsphere' });
+// src/listings/entities/listing.entity.ts - Continuing from the previous code
+import { Schema, Prop, SchemaFactory } from '@nestjs/mongoose';
+import { Document, Types } from 'mongoose';
+import { ListingStatus } from '../enums/listing-status.enum';
+
+@Schema({ timestamps: true })
+export class Listing extends Document {
+  @Prop({ required: true })
+  userId: string;
+
+  @Prop({ required: true })
+  productId: string;
+
+  @Prop({ required: true })
+  title: string;
+
+  @Prop()
+  description: string;
+
+  @Prop({ type: Object, required: true })
+  quantity: {
+    value: number;
+    unit: string;
+    remaining: number;
+  };
+
+  @Prop({ type: Object, required: true })
+  price: {
+    amount: number;
+    currency: string;
+    isNegotiable: boolean;
+    minAcceptable?: number;
+  };
+
+  @Prop({ type: Object })
+  quality: {
+    description: string;
+    attributes: Record<string, any>;
+    images: string[];
+  };
+
+  @Prop({ type: Object, required: true })
+  location: {
+    locationId: string;
+    displayPrecision: string;
+    coordinates: {
+      type: { type: String, default: 'Point' };
+      coordinates: [number, number];
+    };
+  };
+
+  @Prop({ type: Object, required: true })
+  availability: {
+    startDate: Date;
+    endDate: Date;
+    isRecurring: boolean;
+    recurrencePattern?: Record<string, any>;
+  };
+
+  @Prop({ type: String, enum: ListingStatus, default: ListingStatus.ACTIVE })
+  status: string;
+
+  @Prop({ type: Object, default: { isPublic: true } })
+  visibility: {
+    isPublic: boolean;
+    restrictedTo?: string[];
+  };
+
+  @Prop({ default: 0 })
+  views: number;
+
+  @Prop()
+  createdAt: Date;
+
+  @Prop()
+  updatedAt: Date;
+
+  @Prop()
+  expiresAt: Date;
+}
+
+export const ListingSchema = SchemaFactory.createForClass(Listing);
+
+// Add index for geospatial queries
+ListingSchema.index({ 'location.coordinates': '2dsphere' });
+// src/listings/enums/listing-status.enum.ts
+export enum ListingStatus {
+  ACTIVE = 'active',
+  PENDING = 'pending',
+  SOLD = 'sold',
+  EXPIRED = 'expired',
+  INACTIVE = 'inactive'
+}
+
+// src/listings/dto/create-listing.dto.ts
+import { IsNotEmpty, IsString, IsNumber, IsBoolean, IsOptional, IsDateString, IsArray, ValidateNested, IsObject } from 'class-validator';
+import { Type } from 'class-transformer';
+
+class QuantityDto {
+  @IsNumber()
+  @IsNotEmpty()
+  value: number;
+
+  @IsString()
+  @IsNotEmpty()
+  unit: string;
+
+  @IsNumber()
+  @IsNotEmpty()
+  remaining: number;
+}
+
+class PriceDto {
+  @IsNumber()
+  @IsNotEmpty()
+  amount: number;
+
+  @IsString()
+  @IsNotEmpty()
+  currency: string;
+
+  @IsBoolean()
+  isNegotiable: boolean;
+
+  @IsNumber()
+  @IsOptional()
+  minAcceptable?: number;
+}
+
+class QualityDto {
+  @IsString()
+  description: string;
+
+  @IsObject()
+  attributes: Record<string, any>;
+
+  @IsArray()
+  @IsString({ each: true })
+  images: string[];
+}
+
+class LocationDto {
+  @IsString()
+  @IsNotEmpty()
+  locationId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  displayPrecision: string;
+
+  @IsObject()
+  @IsNotEmpty()
+  coordinates: {
+    type: string;
+    coordinates: [number, number];
+  };
+}
+
+class AvailabilityDto {
+  @IsDateString()
+  @IsNotEmpty()
+  startDate: Date;
+
+  @IsDateString()
+  @IsNotEmpty()
+  endDate: Date;
+
+  @IsBoolean()
+  isRecurring: boolean;
+
+  @IsObject()
+  @IsOptional()
+  recurrencePattern?: Record<string, any>;
+}
+
+class VisibilityDto {
+  @IsBoolean()
+  isPublic: boolean;
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  restrictedTo?: string[];
+}
+
+export class CreateListingDto {
+  @IsString()
+  @IsNotEmpty()
+  productId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  title: string;
+
+  @IsString()
+  @IsOptional()
+  description?: string;
+
+  @IsObject()
+  @ValidateNested()
+  @Type(() => QuantityDto)
+  quantity: QuantityDto;
+
+  @IsObject()
+  @ValidateNested()
+  @Type(() => PriceDto)
+  price: PriceDto;
+
+  @IsObject()
+  @ValidateNested()
+  @Type(() => QualityDto)
+  @IsOptional()
+  quality?: QualityDto;
+
+  @IsObject()
+  @ValidateNested()
+  @Type(() => LocationDto)
+  location: LocationDto;
+
+  @IsObject()
+  @ValidateNested()
+  @Type(() => AvailabilityDto)
+  availability: AvailabilityDto;
+
+  @IsObject()
+  @ValidateNested()
+  @Type(() => VisibilityDto)
+  @IsOptional()
+  visibility?: VisibilityDto;
+}
+
+// src/listings/dto/update-listing.dto.ts
+import { PartialType } from '@nestjs/mapped-types';
+import { CreateListingDto } from './create-listing.dto';
+
+export class UpdateListingDto extends PartialType(CreateListingDto) {}
+
+// src/listings/dto/filter-listings.dto.ts
+import { IsOptional, IsString, IsNumber, IsEnum, IsArray } from 'class-validator';
+
+export class FilterListingsDto {
+  @IsOptional()
+  @IsString()
+  productId?: string;
+
+  @IsOptional()
+  @IsString()
+  categoryId?: string;
+
+  @IsOptional()
+  @IsString()
+  searchTerm?: string;
+
+  @IsOptional()
+  @IsNumber()
+  minPrice?: number;
+
+  @IsOptional()
+  @IsNumber()
+  maxPrice?: number;
+
+  @IsOptional()
+  @IsString()
+  unit?: string;
+
+  @IsOptional()
+  @IsNumber()
+  minQuantity?: number;
+
+  @IsOptional()
+  @IsNumber()
+  maxQuantity?: number;
+
+  @IsOptional()
+  @IsString()
+  location?: string;
+
+  @IsOptional()
+  @IsNumber()
+  radius?: number;
+
+  @IsOptional()
+  @IsString()
+  availableFrom?: string;
+
+  @IsOptional()
+  @IsString()
+  availableTo?: string;
+
+  @IsOptional()
+  @IsEnum(ListingStatus)
+  status?: ListingStatus;
+
+  @IsOptional()
+  @IsArray()
+  qualityAttributes?: string[];
+
+  @IsOptional()
+  @IsNumber()
+  skip?: number = 0;
+
+  @IsOptional()
+  @IsNumber()
+  limit?: number = 20;
+
+  @IsOptional()
+  @IsString()
+  sortBy?: string = 'createdAt';
+
+  @IsOptional()
+  @IsString()
+  sortOrder?: 'asc' | 'desc' = 'desc';
+}
+// src/listings/listings.service.ts
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Listing } from './entities/listing.entity';
+import { Product } from './entities/product.entity';
+import { ProductCategory } from './entities/product-category.entity';
+import { CreateListingDto } from './dto/create-listing.dto';
+import { UpdateListingDto } from './dto/update-listing.dto';
+import { FilterListingsDto } from './dto/filter-listings.dto';
+import { ListingStatus } from './enums/listing-status.enum';
+
+@Injectable()
+export class ListingsService {
+  constructor(
+    @InjectModel(Listing.name) private listingModel: Model<Listing>,
+    @InjectRepository(Product) private productRepository: Repository<Product>,
+    @InjectRepository(ProductCategory) private categoryRepository: Repository<ProductCategory>,
+  ) {}
+
+  async create(userId: string, createListingDto: CreateListingDto): Promise<Listing> {
+    // Verify that the product exists
+    const product = await this.productRepository.findOne({
+      where: { id: createListingDto.productId, isActive: true }
+    });
+    
+    if (!product) {
+      throw new BadRequestException('Invalid product ID');
+    }
+
+    // Calculate expiry date based on availability end date
+    const expiresAt = new Date(createListingDto.availability.endDate);
+
+    // Create and save the new listing
+    const newListing = new this.listingModel({
+      ...createListingDto,
+      userId,
+      status: ListingStatus.ACTIVE,
+      views: 0,
+      expiresAt,
+    });
+
+    // Ensure that remaining quantity starts equal to total quantity
+    newListing.quantity.remaining = newListing.quantity.value;
+
+    return await newListing.save();
+  }
+
+  async findAll(filterDto: FilterListingsDto): Promise<{ listings: Listing[]; total: number }> {
+    const { 
+      productId, categoryId, searchTerm, minPrice, maxPrice, 
+      location, radius, availableFrom, availableTo, 
+      status, qualityAttributes, skip, limit, sortBy, sortOrder 
+    } = filterDto;
+
+    // Build query filters
+    const filter: any = { status: ListingStatus.ACTIVE };
+
+    if (productId) {
+      filter.productId = productId;
+    }
+
+    if (searchTerm) {
+      filter.$or = [
+        { title: { $regex: searchTerm, $options: 'i' } },
+        { description: { $regex: searchTerm, $options: 'i' } }
+      ];
+    }
+
+    if (minPrice) {
+      filter['price.amount'] = { $gte: minPrice };
+    }
+
+    if (maxPrice) {
+      filter['price.amount'] = { ...(filter['price.amount'] || {}), $lte: maxPrice };
+    }
+
+    if (availableFrom || availableTo) {
+      filter.availability = {};
+      
+      if (availableFrom) {
+        filter.availability.startDate = { $lte: new Date(availableFrom) };
+      }
+      
+      if (availableTo) {
+        filter.availability.endDate = { $gte: new Date(availableTo) };
+      }
+    }
+
+    if (status) {
+      filter.status = status;
+    }
+
+    if (location && radius) {
+      // Parse location as [longitude, latitude]
+      const [lng, lat] = location.split(',').map(coord => parseFloat(coord.trim()));
+      
+      filter['location.coordinates'] = {
+        $near: {
+          $geometry: {
+            type: 'Point',
+            coordinates: [lng, lat]
+          },
+          $maxDistance: radius * 1000 // Convert km to meters
+        }
+      };
+    }
+
+    if (categoryId) {
+      // Find all products in this category
+      const products = await this.productRepository.find({ where: { categoryId } });
+      const productIds = products.map(product => product.id);
+      filter.productId = { $in: productIds };
+    }
+
+    // Handle quality attributes if needed
+    if (qualityAttributes && qualityAttributes.length > 0) {
+      qualityAttributes.forEach(attr => {
+        const [key, value] = attr.split(':');
+        filter[`quality.attributes.${key}`] = value;
+      });
+    }
+
+    // Execute query with pagination and sorting
+    const sortOption: any = {};
+    sortOption[sortBy] = sortOrder === 'asc' ? 1 : -1;
+
+    const total = await this.listingModel.countDocuments(filter);
+    const listings = await this.listingModel.find(filter)
+      .sort(sortOption)
+      .skip(skip)
+      .limit(limit)
+      .exec();
+
+    return { listings, total };
+  }
+
+  async findOne(id: string): Promise<Listing> {
+    const listing = await this.listingModel.findById(id).exec();
+    
+    if (!listing) {
+      throw new NotFoundException(`Listing with ID ${id} not found`);
+    }
+
+    // Increment view count
+    listing.views += 1;
+    await listing.save();
+
+    return listing;
+  }
+
+  async findByUser(userId: string): Promise<Listing[]> {
+    return this.listingModel.find({ userId }).exec();
+  }
+
+  async update(id: string, userId: string, updateListingDto: UpdateListingDto): Promise<Listing> {
+    const listing = await this.listingModel.findById(id).exec();
+    
+    if (!listing) {
+      throw new NotFoundException(`Listing with ID ${id} not found`);
+    }
+
+    // Verify ownership
+    if (listing.userId !== userId) {
+      throw new BadRequestException('You do not have permission to update this listing');
+    }
+
+    // Update remaining quantity if total quantity is updated
+    if (updateListingDto.quantity && updateListingDto.quantity.value) {
+      // Calculate the difference between new and old values
+      const quantityDifference = updateListingDto.quantity.value - listing.quantity.value;
+      
+      // Update the remaining quantity proportionally
+      const newRemaining = listing.quantity.remaining + quantityDifference;
+      
+      // Ensure remaining doesn't go below 0
+      updateListingDto.quantity.remaining = Math.max(0, newRemaining);
+    }
+
+    // Update expiry date if availability end date is updated
+    if (updateListingDto.availability && updateListingDto.availability.endDate) {
+      listing.expiresAt = new Date(updateListingDto.availability.endDate);
+    }
+
+    // Apply updates
+    Object.assign(listing, updateListingDto);
+    return await listing.save();
+  }
+
+  async remove(id: string, userId: string): Promise<boolean> {
+    const listing = await this.listingModel.findById(id).exec();
+    
+    if (!listing) {
+      throw new NotFoundException(`Listing with ID ${id} not found`);
+    }
+
+    // Verify ownership
+    if (listing.userId !== userId) {
+      throw new BadRequestException('You do not have permission to delete this listing');
+    }
+
+    // Instead of hard deleting, just mark as inactive
+    listing.status = ListingStatus.INACTIVE;
+    await listing.save();
+    
+    return true;
+  }
+
+  async findNearby(longitude: number, latitude: number, radiusKm: number): Promise<Listing[]> {
+    return this.listingModel.find({
+      'location.coordinates': {
+        $near: {
+          $geometry: {
+            type: 'Point',
+            coordinates: [longitude, latitude]
+          },
+          $maxDistance: radiusKm * 1000 // Convert km to meters
+        }
+      },
+      status: ListingStatus.ACTIVE
+    }).exec();
+  }
+
+  async updateRemainingQuantity(id: string, quantitySold: number): Promise<Listing> {
+    const listing = await this.listingModel.findById(id).exec();
+    
+    if (!listing) {
+      throw new NotFoundException(`Listing with ID ${id} not found`);
+    }
+
+    if (listing.quantity.remaining < quantitySold) {
+      throw new BadRequestException('Requested quantity exceeds available quantity');
+    }
+
+    // Update remaining quantity
+    listing.quantity.remaining -= quantitySold;
+    
+    // If all quantity is sold, mark listing as sold
+    if (listing.quantity.remaining <= 0) {
+      listing.status = ListingStatus.SOLD;
+    }
+
+    return await listing.save();
+  }
+
+  // Helper method to check if listing is available for transaction
+  async isAvailableForTransaction(id: string, quantity: number): Promise<boolean> {
+    const listing = await this.listingModel.findById(id).exec();
+    
+    if (!listing || listing.status !== ListingStatus.ACTIVE) {
+      return false;
+    }
+
+    if (listing.quantity.remaining < quantity) {
+      return false;
+    }
+
+    const now = new Date();
+    if (now < listing.availability.startDate || now > listing.availability.endDate) {
+      return false;
+    }
+
+    return true;
+  }
+}
+// src/listings/listings.controller.ts
+import { 
+  Controller, 
+  Get, 
+  Post, 
+  Body, 
+  Patch, 
+  Param, 
+  Delete, 
+  Query, 
+  UseGuards, 
+  Request,
+  HttpStatus,
+  HttpCode,
+  BadRequestException
+} from '@nestjs/common';
+import { ListingsService } from './listings.service';
+import { CreateListingDto } from './dto/create-listing.dto';
+import { UpdateListingDto } from './dto/update-listing.dto';
+import { FilterListingsDto } from './dto/filter-listings.dto';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+
+@ApiTags('listings')
+@Controller('listings')
+export class ListingsController {
+  constructor(private readonly listingsService: ListingsService) {}
+
+  @Post()
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Create a new listing' })
+  @ApiResponse({ status: 201, description: 'The listing has been successfully created.' })
+  @ApiResponse({ status: 400, description: 'Invalid input data.' })
+  async create(@Request() req, @Body() createListingDto: CreateListingDto) {
+    const userId = req.user.userId;
+    return this.listingsService.create(userId, createListingDto);
+  }
+
+  @Get()
+  @ApiOperation({ summary: 'Get all listings with filters' })
+  @ApiResponse({ status: 200, description: 'Return all listings that match the criteria.' })
+  async findAll(@Query() filterDto: FilterListingsDto) {
+    return this.listingsService.findAll(filterDto);
+  }
+
+  @Get('my-listings')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get all listings created by the authenticated user' })
+  @ApiResponse({ status: 200, description: 'Return all user listings.' })
+  async findUserListings(@Request() req) {
+    const userId = req.user.userId;
+    return this.listingsService.findByUser(userId);
+  }
+
+  @Get('nearby')
+  @ApiOperation({ summary: 'Find listings near a location' })
+  @ApiResponse({ status: 200, description: 'Return nearby listings.' })
+  async findNearby(
+    @Query('longitude') longitude: string,
+    @Query('latitude') latitude: string,
+    @Query('radius') radius: string,
+  ) {
+    if (!longitude || !latitude || !radius) {
+      throw new BadRequestException('Longitude, latitude, and radius are required');
+    }
+
+    const lng = parseFloat(longitude);
+    const lat = parseFloat(latitude);
+    const rad = parseFloat(radius);
+
+    if (isNaN(lng) || isNaN(lat) || isNaN(rad)) {
+      throw new BadRequestException('Invalid coordinates or radius');
+    }
+
+    return this.listingsService.findNearby(lng, lat, rad);
+  }
+
+  @Get(':id')
+  @ApiOperation({ summary: 'Get a specific listing by ID' })
+  @ApiResponse({ status: 200, description: 'Return the listing.' })
+  @ApiResponse({ status: 404, description: 'Listing not found.' })
+  async findOne(@Param('id') id: string) {
+    return this.listingsService.findOne(id);
+  }
+
+  @Patch(':id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Update a listing' })
+  @ApiResponse({ status: 200, description: 'The listing has been successfully updated.' })
+  @ApiResponse({ status: 400, description: 'Invalid input or permission denied.' })
+  @ApiResponse({ status: 404, description: 'Listing not found.' })
+  async update(
+    @Request() req,
+    @Param('id') id: string, 
+    @Body() updateListingDto: UpdateListingDto
+  ) {
+    const userId = req.user.userId;
+    return this.listingsService.update(id, userId, updateListingDto);
+  }
+
+  @Delete(':id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Delete a listing' })
+  @ApiResponse({ status: 204, description: 'The listing has been successfully deactivated.' })
+  @ApiResponse({ status: 400, description: 'Permission denied.' })
+  @ApiResponse({ status: 404, description: 'Listing not found.' })
+  async remove(@Request() req, @Param('id') id: string) {
+    const userId = req.user.userId;
+    await this.listingsService.remove(id, userId);
+    return;
+  }
+}
+// src/listings/listings.module.ts
+import { Module } from '@nestjs/common';
+import { MongooseModule } from '@nestjs/mongoose';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { ListingsService } from './listings.service';
+import { ListingsController } from './listings.controller';
+import { Listing, ListingSchema } from './entities/listing.entity';
+import { Product } from './entities/product.entity';
+import { ProductCategory } from './entities/product-category.entity';
+
+@Module({
+  imports: [
+    MongooseModule.forFeature([
+      { name: Listing.name, schema: ListingSchema }
+    ]),
+    TypeOrmModule.forFeature([Product, ProductCategory]),
+  ],
+  controllers: [ListingsController],
+  providers: [ListingsService],
+  exports: [ListingsService], // Export service to be used in other modules
+})
+export class ListingsModule {}
+// src/listings/dto/create-category.dto.ts
+import { IsNotEmpty, IsString, IsOptional, IsBoolean } from 'class-validator';
+
+export class CreateCategoryDto {
+  @IsString()
+  @IsNotEmpty()
+  name: string;
+
+  @IsString()
+  @IsOptional()
+  description?: string;
+
+  @IsString()
+  @IsOptional()
+  imageUrl?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  isActive?: boolean = true;
+}
+
+// src/listings/dto/create-product.dto.ts
+import { IsNotEmpty, IsString, IsOptional, IsBoolean, IsObject, IsUUID } from 'class-validator';
+
+export class CreateProductDto {
+  @IsUUID()
+  @IsNotEmpty()
+  categoryId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  name: string;
+
+  @IsString()
+  @IsOptional()
+  description?: string;
+
+  @IsObject()
+  @IsOptional()
+  unitTypes?: Record<string, any>;
+
+  @IsObject()
+  @IsOptional()
+  qualityAttributes?: Record<string, any>;
+
+  @IsString()
+  @IsOptional()
+  imageUrl?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  isActive?: boolean = true;
+}
