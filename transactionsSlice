@@ -1,0 +1,312 @@
+import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
+import { api } from '../services/api';
+
+// Async thunks for transaction operations
+export const fetchTransactions = createAsyncThunk(
+  'transactions/fetchTransactions',
+  async ({ status = null, page = 1, limit = 10 }, { rejectWithValue }) => {
+    try {
+      const params = { page, limit };
+      if (status) params.status = status;
+      
+      const response = await api.get('/transactions', { params });
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response?.data || 'Failed to fetch transactions');
+    }
+  }
+);
+
+export const fetchTransactionById = createAsyncThunk(
+  'transactions/fetchTransactionById',
+  async (id, { rejectWithValue }) => {
+    try {
+      const response = await api.get(`/transactions/${id}`);
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response?.data || 'Failed to fetch transaction');
+    }
+  }
+);
+
+export const initiateTransaction = createAsyncThunk(
+  'transactions/initiateTransaction',
+  async (transactionData, { rejectWithValue }) => {
+    try {
+      const response = await api.post('/transactions', transactionData);
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response?.data || 'Failed to initiate transaction');
+    }
+  }
+);
+
+export const updateTransactionStatus = createAsyncThunk(
+  'transactions/updateTransactionStatus',
+  async ({ id, status, notes = null }, { rejectWithValue }) => {
+    try {
+      const response = await api.put(`/transactions/${id}/status`, { status, notes });
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response?.data || 'Failed to update transaction status');
+    }
+  }
+);
+
+export const completeTransaction = createAsyncThunk(
+  'transactions/completeTransaction',
+  async ({ id, rating, review = null }, { rejectWithValue }) => {
+    try {
+      const response = await api.post(`/transactions/${id}/complete`, { rating, review });
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response?.data || 'Failed to complete transaction');
+    }
+  }
+);
+
+export const processPayment = createAsyncThunk(
+  'transactions/processPayment',
+  async ({ transactionId, paymentMethod, amount }, { rejectWithValue }) => {
+    try {
+      const response = await api.post('/payments/initiate', {
+        transactionId,
+        paymentMethod,
+        amount
+      });
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response?.data || 'Failed to process payment');
+    }
+  }
+);
+
+export const fetchTransactionMessages = createAsyncThunk(
+  'transactions/fetchTransactionMessages',
+  async (transactionId, { rejectWithValue }) => {
+    try {
+      const response = await api.get(`/transactions/${transactionId}/messages`);
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response?.data || 'Failed to fetch messages');
+    }
+  }
+);
+
+export const sendTransactionMessage = createAsyncThunk(
+  'transactions/sendTransactionMessage',
+  async ({ transactionId, content, attachments = [] }, { rejectWithValue }) => {
+    try {
+      const response = await api.post(`/transactions/${transactionId}/messages`, {
+        content,
+        attachments
+      });
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response?.data || 'Failed to send message');
+    }
+  }
+);
+
+const initialState = {
+  transactions: [],
+  currentTransaction: null,
+  transactionMessages: [],
+  status: 'idle', // 'idle' | 'loading' | 'succeeded' | 'failed'
+  paymentStatus: 'idle', // 'idle' | 'loading' | 'succeeded' | 'failed'
+  messageStatus: 'idle', // 'idle' | 'loading' | 'succeeded' | 'failed'
+  error: null,
+  pagination: {
+    currentPage: 1,
+    totalPages: 0,
+    totalItems: 0,
+    limit: 10
+  },
+  filters: {
+    status: null,
+    dateRange: null,
+    product: null
+  }
+};
+
+const transactionsSlice = createSlice({
+  name: 'transactions',
+  initialState,
+  reducers: {
+    setTransactionFilters: (state, action) => {
+      state.filters = { ...state.filters, ...action.payload };
+    },
+    clearTransactionFilters: (state) => {
+      state.filters = initialState.filters;
+    },
+    resetTransactionStatus: (state) => {
+      state.status = 'idle';
+      state.error = null;
+    },
+    resetPaymentStatus: (state) => {
+      state.paymentStatus = 'idle';
+      state.error = null;
+    },
+    setTransactionPage: (state, action) => {
+      state.pagination.currentPage = action.payload;
+    },
+    clearCurrentTransaction: (state) => {
+      state.currentTransaction = null;
+    }
+  },
+  extraReducers: (builder) => {
+    builder
+      // Fetch Transactions
+      .addCase(fetchTransactions.pending, (state) => {
+        state.status = 'loading';
+      })
+      .addCase(fetchTransactions.fulfilled, (state, action) => {
+        state.status = 'succeeded';
+        state.transactions = action.payload.items;
+        state.pagination = {
+          currentPage: action.payload.currentPage,
+          totalPages: action.payload.totalPages,
+          totalItems: action.payload.totalItems,
+          limit: action.payload.limit
+        };
+      })
+      .addCase(fetchTransactions.rejected, (state, action) => {
+        state.status = 'failed';
+        state.error = action.payload;
+      })
+      
+      // Fetch Transaction by ID
+      .addCase(fetchTransactionById.pending, (state) => {
+        state.status = 'loading';
+      })
+      .addCase(fetchTransactionById.fulfilled, (state, action) => {
+        state.status = 'succeeded';
+        state.currentTransaction = action.payload;
+      })
+      .addCase(fetchTransactionById.rejected, (state, action) => {
+        state.status = 'failed';
+        state.error = action.payload;
+      })
+      
+      // Initiate Transaction
+      .addCase(initiateTransaction.pending, (state) => {
+        state.status = 'loading';
+      })
+      .addCase(initiateTransaction.fulfilled, (state, action) => {
+        state.status = 'succeeded';
+        state.transactions.unshift(action.payload);
+        state.currentTransaction = action.payload;
+      })
+      .addCase(initiateTransaction.rejected, (state, action) => {
+        state.status = 'failed';
+        state.error = action.payload;
+      })
+      
+      // Update Transaction Status
+      .addCase(updateTransactionStatus.pending, (state) => {
+        state.status = 'loading';
+      })
+      .addCase(updateTransactionStatus.fulfilled, (state, action) => {
+        state.status = 'succeeded';
+        // Update in transactions array
+        const index = state.transactions.findIndex(
+          transaction => transaction.id === action.payload.id
+        );
+        if (index !== -1) {
+          state.transactions[index] = action.payload;
+        }
+        
+        // Update current transaction if it's the one being updated
+        if (state.currentTransaction && state.currentTransaction.id === action.payload.id) {
+          state.currentTransaction = action.payload;
+        }
+      })
+      .addCase(updateTransactionStatus.rejected, (state, action) => {
+        state.status = 'failed';
+        state.error = action.payload;
+      })
+      
+      // Complete Transaction
+      .addCase(completeTransaction.pending, (state) => {
+        state.status = 'loading';
+      })
+      .addCase(completeTransaction.fulfilled, (state, action) => {
+        state.status = 'succeeded';
+        // Update in transactions array
+        const index = state.transactions.findIndex(
+          transaction => transaction.id === action.payload.id
+        );
+        if (index !== -1) {
+          state.transactions[index] = action.payload;
+        }
+        
+        // Update current transaction if it's the one being completed
+        if (state.currentTransaction && state.currentTransaction.id === action.payload.id) {
+          state.currentTransaction = action.payload;
+        }
+      })
+      .addCase(completeTransaction.rejected, (state, action) => {
+        state.status = 'failed';
+        state.error = action.payload;
+      })
+      
+      // Process Payment
+      .addCase(processPayment.pending, (state) => {
+        state.paymentStatus = 'loading';
+      })
+      .addCase(processPayment.fulfilled, (state, action) => {
+        state.paymentStatus = 'succeeded';
+        
+        // Update transaction with payment info if it's the current transaction
+        if (state.currentTransaction && 
+            state.currentTransaction.id === action.payload.transactionId) {
+          state.currentTransaction = {
+            ...state.currentTransaction,
+            paymentStatus: action.payload.status,
+            paymentDetails: action.payload
+          };
+        }
+      })
+      .addCase(processPayment.rejected, (state, action) => {
+        state.paymentStatus = 'failed';
+        state.error = action.payload;
+      })
+      
+      // Fetch Transaction Messages
+      .addCase(fetchTransactionMessages.pending, (state) => {
+        state.messageStatus = 'loading';
+      })
+      .addCase(fetchTransactionMessages.fulfilled, (state, action) => {
+        state.messageStatus = 'succeeded';
+        state.transactionMessages = action.payload;
+      })
+      .addCase(fetchTransactionMessages.rejected, (state, action) => {
+        state.messageStatus = 'failed';
+        state.error = action.payload;
+      })
+      
+      // Send Transaction Message
+      .addCase(sendTransactionMessage.pending, (state) => {
+        state.messageStatus = 'loading';
+      })
+      .addCase(sendTransactionMessage.fulfilled, (state, action) => {
+        state.messageStatus = 'succeeded';
+        state.transactionMessages.push(action.payload);
+      })
+      .addCase(sendTransactionMessage.rejected, (state, action) => {
+        state.messageStatus = 'failed';
+        state.error = action.payload;
+      });
+  }
+});
+
+export const {
+  setTransactionFilters,
+  clearTransactionFilters,
+  resetTransactionStatus,
+  resetPaymentStatus,
+  setTransactionPage,
+  clearCurrentTransaction
+} = transactionsSlice.actions;
+
+export default transactionsSlice.reducer;
