@@ -1,0 +1,387 @@
+// src/auth/dtos/login.dto.ts
+import { IsNotEmpty, Length, Matches } from 'class-validator';
+import { ApiProperty } from '@nestjs/swagger';
+
+export class LoginDto {
+  @ApiProperty({ description: 'Phone number in format +254XXXXXXXXX' })
+  @IsNotEmpty()
+  @Matches(/^\+254\d{9}$/, { message: 'Phone number must be in format +254XXXXXXXXX' })
+  phoneNumber: string;
+
+  @ApiProperty({ description: 'User password' })
+  @IsNotEmpty()
+  @Length(8, 50)
+  password: string;
+}
+
+// src/auth/dtos/register-otp.dto.ts
+import { IsNotEmpty, Matches } from 'class-validator';
+import { ApiProperty } from '@nestjs/swagger';
+
+export class RegisterOtpDto {
+  @ApiProperty({ description: 'Phone number in format +254XXXXXXXXX' })
+  @IsNotEmpty()
+  @Matches(/^\+254\d{9}$/, { message: 'Phone number must be in format +254XXXXXXXXX' })
+  phoneNumber: string;
+}
+
+// src/auth/dtos/verify-otp.dto.ts
+import { IsNotEmpty, Matches, Length } from 'class-validator';
+import { ApiProperty } from '@nestjs/swagger';
+
+export class VerifyOtpDto {
+  @ApiProperty({ description: 'Phone number in format +254XXXXXXXXX' })
+  @IsNotEmpty()
+  @Matches(/^\+254\d{9}$/, { message: 'Phone number must be in format +254XXXXXXXXX' })
+  phoneNumber: string;
+
+  @ApiProperty({ description: 'OTP code' })
+  @IsNotEmpty()
+  @Length(6, 6)
+  otpCode: string;
+}
+
+// src/auth/entities/otp.entity.ts
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn } from 'typeorm';
+
+@Entity('otp_codes')
+export class OtpCode {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Column()
+  phoneNumber: string;
+
+  @Column()
+  code: string;
+
+  @Column({ default: false })
+  isVerified: boolean;
+
+  @Column({ type: 'timestamp' })
+  expiresAt: Date;
+
+  @CreateDateColumn()
+  createdAt: Date;
+}
+
+// src/auth/guards/jwt-auth.guard.ts
+import { Injectable, ExecutionContext, UnauthorizedException } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
+import { Reflector } from '@nestjs/core';
+import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
+
+@Injectable()
+export class JwtAuthGuard extends AuthGuard('jwt') {
+  constructor(private reflector: Reflector) {
+    super();
+  }
+
+  canActivate(context: ExecutionContext) {
+    // Check if the route is marked as public
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    
+    if (isPublic) {
+      return true;
+    }
+    
+    return super.canActivate(context);
+  }
+
+  handleRequest(err, user, info) {
+    // Handle JWT auth errors
+    if (err || !user) {
+      throw err || new UnauthorizedException('Invalid or expired token');
+    }
+    return user;
+  }
+}
+
+// src/auth/decorators/public.decorator.ts
+import { SetMetadata } from '@nestjs/common';
+
+export const IS_PUBLIC_KEY = 'isPublic';
+export const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
+
+// src/auth/strategies/jwt.strategy.ts
+import { ExtractJwt, Strategy } from 'passport-jwt';
+import { PassportStrategy } from '@nestjs/passport';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { UsersService } from '../../users/services/users.service';
+
+@Injectable()
+export class JwtStrategy extends PassportStrategy(Strategy) {
+  constructor(
+    private configService: ConfigService,
+    private usersService: UsersService,
+  ) {
+    super({
+      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      ignoreExpiration: false,
+      secretOrKey: configService.get<string>('jwt.secret'),
+    });
+  }
+
+  async validate(payload: any) {
+    const user = await this.usersService.findById(payload.sub);
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+    return { id: user.id, phoneNumber: user.phoneNumber, userType: user.userType };
+  }
+}
+
+// src/auth/strategies/local.strategy.ts
+import { Strategy } from 'passport-local';
+import { PassportStrategy } from '@nestjs/passport';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { AuthService } from '../services/auth.service';
+
+@Injectable()
+export class LocalStrategy extends PassportStrategy(Strategy) {
+  constructor(private authService: AuthService) {
+    super({
+      usernameField: 'phoneNumber',
+      passwordField: 'password',
+    });
+  }
+
+  async validate(phoneNumber: string, password: string): Promise<any> {
+    const user = await this.authService.validateUser(phoneNumber, password);
+    if (!user) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+    return user;
+  }
+}
+
+// src/auth/services/auth.service.ts
+import { Injectable, BadRequestException, UnauthorizedException } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import * as bcrypt from 'bcrypt';
+import axios from 'axios';
+import { UsersService } from '../../users/services/users.service';
+import { OtpCode } from '../entities/otp.entity';
+import { User } from '../../users/entities/user.entity';
+
+@Injectable()
+export class AuthService {
+  constructor(
+    private usersService: UsersService,
+    private jwtService: JwtService,
+    private configService: ConfigService,
+    @InjectRepository(OtpCode)
+    private otpRepository: Repository<OtpCode>,
+  ) {}
+
+  // Validate user credentials
+  async validateUser(phoneNumber: string, password: string): Promise<any> {
+    const user = await this.usersService.findByPhoneNumber(phoneNumber);
+    if (!user || !user.passwordHash) {
+      return null;
+    }
+    
+    const isMatch = await bcrypt.compare(password, user.passwordHash);
+    if (isMatch) {
+      const { passwordHash, ...result } = user;
+      return result;
+    }
+    return null;
+  }
+
+  // Generate JWT token
+  async login(user: any) {
+    const payload = { phoneNumber: user.phoneNumber, sub: user.id };
+    return {
+      user: {
+        id: user.id,
+        phoneNumber: user.phoneNumber,
+        userType: user.userType,
+      },
+      access_token: this.jwtService.sign(payload, {
+        expiresIn: this.configService.get('jwt.expiresIn'),
+      }),
+    };
+  }
+
+  // Generate and send OTP
+  async sendOtp(phoneNumber: string): Promise<{ message: string }> {
+    // Generate 6 digit OTP
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    
+    // Set expiration time (10 minutes)
+    const expiresAt = new Date();
+    expiresAt.setMinutes(expiresAt.getMinutes() + 10);
+    
+    // Store OTP in database
+    await this.otpRepository.save({
+      phoneNumber,
+      code: otpCode,
+      expiresAt,
+      isVerified: false,
+    });
+    
+    // In production, send via Africa's Talking SMS API
+    try {
+      // Uncomment in production
+      /*
+      const smsApiKey = this.configService.get('sms.apiKey');
+      const smsSenderId = this.configService.get('sms.senderId');
+      
+      await axios.post('https://api.africastalking.com/version1/messaging', {
+        username: smsSenderId,
+        to: phoneNumber,
+        message: `Your MkulimaMarket verification code is: ${otpCode}`,
+      }, {
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'apiKey': smsApiKey,
+        },
+      });
+      */
+      
+      // For development, just log the OTP
+      console.log(`OTP for ${phoneNumber}: ${otpCode}`);
+      
+      return { message: 'OTP sent successfully' };
+    } catch (error) {
+      console.error('Error sending SMS:', error);
+      throw new BadRequestException('Failed to send OTP');
+    }
+  }
+
+  // Verify OTP
+  async verifyOtp(phoneNumber: string, otpCode: string): Promise<{ isValid: boolean }> {
+    // Find the most recent OTP that hasn't expired
+    const otp = await this.otpRepository.findOne({
+      where: { phoneNumber, code: otpCode, isVerified: false },
+      order: { createdAt: 'DESC' },
+    });
+    
+    if (!otp) {
+      throw new BadRequestException('Invalid OTP');
+    }
+    
+    // Check if OTP is expired
+    if (new Date() > otp.expiresAt) {
+      throw new BadRequestException('OTP has expired');
+    }
+    
+    // Mark OTP as verified
+    await this.otpRepository.update(otp.id, { isVerified: true });
+    
+    return { isValid: true };
+  }
+}
+
+// src/auth/controllers/auth.controller.ts
+import { 
+  Controller, 
+  Post, 
+  Body, 
+  UseGuards, 
+  Request, 
+  HttpCode,
+  HttpStatus
+} from '@nestjs/common';
+import { 
+  ApiTags, 
+  ApiOperation, 
+  ApiOkResponse, 
+  ApiUnauthorizedResponse,
+  ApiBadRequestResponse,
+  ApiCreatedResponse
+} from '@nestjs/swagger';
+import { AuthService } from '../services/auth.service';
+import { LocalAuthGuard } from '../guards/local-auth.guard';
+import { LoginDto } from '../dtos/login.dto';
+import { RegisterOtpDto } from '../dtos/register-otp.dto';
+import { VerifyOtpDto } from '../dtos/verify-otp.dto';
+import { Public } from '../decorators/public.decorator';
+
+@ApiTags('auth')
+@Controller('auth')
+export class AuthController {
+  constructor(private authService: AuthService) {}
+
+  @Public()
+  @UseGuards(LocalAuthGuard)
+  @Post('login')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Login with phone number and password' })
+  @ApiOkResponse({ description: 'Returns JWT token' })
+  @ApiUnauthorizedResponse({ description: 'Invalid credentials' })
+  async login(@Body() loginDto: LoginDto, @Request() req) {
+    return this.authService.login(req.user);
+  }
+
+  @Public()
+  @Post('send-otp')
+  @ApiOperation({ summary: 'Send OTP to phone number' })
+  @ApiCreatedResponse({ description: 'OTP sent successfully' })
+  @ApiBadRequestResponse({ description: 'Failed to send OTP' })
+  async sendOtp(@Body() registerOtpDto: RegisterOtpDto) {
+    return this.authService.sendOtp(registerOtpDto.phoneNumber);
+  }
+
+  @Public()
+  @Post('verify-otp')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Verify OTP code' })
+  @ApiOkResponse({ description: 'OTP verified successfully' })
+  @ApiBadRequestResponse({ description: 'Invalid or expired OTP' })
+  async verifyOtp(@Body() verifyOtpDto: VerifyOtpDto) {
+    return this.authService.verifyOtp(
+      verifyOtpDto.phoneNumber,
+      verifyOtpDto.otpCode
+    );
+  }
+}
+
+// src/auth/guards/local-auth.guard.ts
+import { Injectable } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
+
+@Injectable()
+export class LocalAuthGuard extends AuthGuard('local') {}
+
+// src/auth/auth.module.ts
+import { Module } from '@nestjs/common';
+import { PassportModule } from '@nestjs/passport';
+import { JwtModule } from '@nestjs/jwt';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { AuthController } from './controllers/auth.controller';
+import { AuthService } from './services/auth.service';
+import { LocalStrategy } from './strategies/local.strategy';
+import { JwtStrategy } from './strategies/jwt.strategy';
+import { OtpCode } from './entities/otp.entity';
+import { UsersModule } from '../users/users.module';
+
+@Module({
+  imports: [
+    TypeOrmModule.forFeature([OtpCode]),
+    UsersModule,
+    PassportModule,
+    JwtModule.registerAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: async (configService: ConfigService) => ({
+        secret: configService.get('jwt.secret'),
+        signOptions: { expiresIn: configService.get('jwt.expiresIn') },
+      }),
+    }),
+  ],
+  controllers: [AuthController],
+  providers: [AuthService, LocalStrategy, JwtStrategy],
+  exports: [AuthService],
+})
+export class AuthModule {}
