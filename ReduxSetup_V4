@@ -1,0 +1,1670 @@
+// store.js
+import { configureStore } from '@reduxjs/toolkit';
+import { combineReducers } from 'redux';
+import { persistStore, persistReducer } from 'redux-persist';
+import storage from 'redux-persist/lib/storage';
+import authReducer from './slices/authSlice';
+import userReducer from './slices/userSlice';
+import listingReducer from './slices/listingSlice';
+import transactionReducer from './slices/transactionSlice';
+import marketReducer from './slices/marketSlice';
+import logisticsReducer from './slices/logisticsSlice';
+import uiReducer from './slices/uiSlice';
+import offlineReducer from './slices/offlineSlice';
+
+// Configure Redux Persist for offline support
+const persistConfig = {
+  key: 'root',
+  storage,
+  whitelist: ['auth', 'user', 'listings', 'transactions', 'offline'], // Only persist these reducers
+};
+
+const rootReducer = combineReducers({
+  auth: authReducer,
+  user: userReducer,
+  listings: listingReducer,
+  transactions: transactionReducer,
+  market: marketReducer,
+  logistics: logisticsReducer,
+  ui: uiReducer,
+  offline: offlineReducer,
+});
+
+const persistedReducer = persistReducer(persistConfig, rootReducer);
+
+export const store = configureStore({
+  reducer: persistedReducer,
+  middleware: (getDefaultMiddleware) =>
+    getDefaultMiddleware({
+      serializableCheck: {
+        // Ignore these action types for serializability check
+        ignoredActions: ['persist/PERSIST', 'persist/REHYDRATE'],
+      },
+    }),
+});
+
+export const persistor = persistStore(store);
+
+// Auth Slice for user authentication
+// authSlice.js
+import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
+import axios from 'axios';
+
+const API_URL = 'https://api.mkulimamarket.co.ke/v1';
+
+// Async action for user login
+export const loginUser = createAsyncThunk(
+  'auth/login',
+  async ({ phone, password }, { rejectWithValue }) => {
+    try {
+      const response = await axios.post(`${API_URL}/auth/login`, {
+        phone,
+        password,
+      });
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response.data);
+    }
+  }
+);
+
+// Async action for user registration
+export const registerUser = createAsyncThunk(
+  'auth/register',
+  async (userData, { rejectWithValue }) => {
+    try {
+      const response = await axios.post(`${API_URL}/auth/register`, userData);
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response.data);
+    }
+  }
+);
+
+// Async action for OTP verification
+export const verifyOTP = createAsyncThunk(
+  'auth/verifyOTP',
+  async ({ phone, otp }, { rejectWithValue }) => {
+    try {
+      const response = await axios.post(`${API_URL}/auth/verify`, {
+        phone,
+        otp,
+      });
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response.data);
+    }
+  }
+);
+
+const initialState = {
+  token: null,
+  isAuthenticated: false,
+  user: null,
+  loading: false,
+  error: null,
+  verificationStatus: null,
+};
+
+const authSlice = createSlice({
+  name: 'auth',
+  initialState,
+  reducers: {
+    logout: (state) => {
+      state.token = null;
+      state.isAuthenticated = false;
+      state.user = null;
+      state.error = null;
+    },
+    clearError: (state) => {
+      state.error = null;
+    },
+  },
+  extraReducers: (builder) => {
+    builder
+      // Login cases
+      .addCase(loginUser.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(loginUser.fulfilled, (state, action) => {
+        state.loading = false;
+        state.isAuthenticated = true;
+        state.token = action.payload.token;
+        state.user = action.payload.user;
+      })
+      .addCase(loginUser.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      })
+      // Registration cases
+      .addCase(registerUser.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(registerUser.fulfilled, (state, action) => {
+        state.loading = false;
+        state.verificationStatus = 'pending';
+      })
+      .addCase(registerUser.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      })
+      // OTP verification cases
+      .addCase(verifyOTP.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(verifyOTP.fulfilled, (state, action) => {
+        state.loading = false;
+        state.isAuthenticated = true;
+        state.token = action.payload.token;
+        state.user = action.payload.user;
+        state.verificationStatus = 'verified';
+      })
+      .addCase(verifyOTP.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+        state.verificationStatus = 'failed';
+      });
+  },
+});
+
+export const { logout, clearError } = authSlice.actions;
+export default authSlice.reducer;
+
+// User profile slice
+// userSlice.js
+import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
+import axios from 'axios';
+
+const API_URL = 'https://api.mkulimamarket.co.ke/v1';
+
+// Async action to fetch user profile
+export const fetchUserProfile = createAsyncThunk(
+  'user/fetchProfile',
+  async (_, { getState, rejectWithValue }) => {
+    try {
+      const { token } = getState().auth;
+      const response = await axios.get(`${API_URL}/users/profile`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response.data);
+    }
+  }
+);
+
+// Async action to update user profile
+export const updateUserProfile = createAsyncThunk(
+  'user/updateProfile',
+  async (profileData, { getState, rejectWithValue }) => {
+    try {
+      const { token } = getState().auth;
+      const response = await axios.put(`${API_URL}/users/profile`, profileData, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response.data);
+    }
+  }
+);
+
+// Async action to verify user (upload verification documents)
+export const verifyUser = createAsyncThunk(
+  'user/verify',
+  async (verificationData, { getState, rejectWithValue }) => {
+    try {
+      const { token } = getState().auth;
+      const response = await axios.post(`${API_URL}/users/verify`, verificationData, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response.data);
+    }
+  }
+);
+
+// Separate profile getters based on user type
+export const fetchFarmerProfile = createAsyncThunk(
+  'user/fetchFarmerProfile',
+  async (_, { getState, rejectWithValue }) => {
+    try {
+      const { token } = getState().auth;
+      const response = await axios.get(`${API_URL}/farmers/profile`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response.data);
+    }
+  }
+);
+
+export const fetchBuyerProfile = createAsyncThunk(
+  'user/fetchBuyerProfile',
+  async (_, { getState, rejectWithValue }) => {
+    try {
+      const { token } = getState().auth;
+      const response = await axios.get(`${API_URL}/buyers/profile`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response.data);
+    }
+  }
+);
+
+const initialState = {
+  profile: null,
+  farmerProfile: null,
+  buyerProfile: null,
+  locations: [],
+  verificationLevel: 'basic',
+  verificationStatus: null,
+  loading: false,
+  error: null,
+};
+
+const userSlice = createSlice({
+  name: 'user',
+  initialState,
+  reducers: {
+    clearProfileError: (state) => {
+      state.error = null;
+    },
+    addLocation: (state, action) => {
+      state.locations.push(action.payload);
+    },
+    removeLocation: (state, action) => {
+      state.locations = state.locations.filter(
+        (location) => location.id !== action.payload
+      );
+    },
+  },
+  extraReducers: (builder) => {
+    builder
+      // Fetch profile cases
+      .addCase(fetchUserProfile.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(fetchUserProfile.fulfilled, (state, action) => {
+        state.loading = false;
+        state.profile = action.payload;
+        state.verificationLevel = action.payload.verification_level;
+      })
+      .addCase(fetchUserProfile.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      })
+      // Update profile cases
+      .addCase(updateUserProfile.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(updateUserProfile.fulfilled, (state, action) => {
+        state.loading = false;
+        state.profile = action.payload;
+      })
+      .addCase(updateUserProfile.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      })
+      // Verify user cases
+      .addCase(verifyUser.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(verifyUser.fulfilled, (state, action) => {
+        state.loading = false;
+        state.verificationStatus = 'pending';
+      })
+      .addCase(verifyUser.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      })
+      // Farmer profile cases
+      .addCase(fetchFarmerProfile.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(fetchFarmerProfile.fulfilled, (state, action) => {
+        state.loading = false;
+        state.farmerProfile = action.payload;
+      })
+      .addCase(fetchFarmerProfile.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      })
+      // Buyer profile cases
+      .addCase(fetchBuyerProfile.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(fetchBuyerProfile.fulfilled, (state, action) => {
+        state.loading = false;
+        state.buyerProfile = action.payload;
+      })
+      .addCase(fetchBuyerProfile.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      });
+  },
+});
+
+export const { clearProfileError, addLocation, removeLocation } = userSlice.actions;
+export default userSlice.reducer;
+
+// Listing Slice for product listings
+// listingSlice.js
+import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
+import axios from 'axios';
+
+const API_URL = 'https://api.mkulimamarket.co.ke/v1';
+
+// Async action to create a new listing
+export const createListing = createAsyncThunk(
+  'listings/create',
+  async (listingData, { getState, rejectWithValue }) => {
+    try {
+      const { token } = getState().auth;
+      const response = await axios.post(`${API_URL}/listings`, listingData, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response.data);
+    }
+  }
+);
+
+// Async action to fetch listings with optional filters
+export const fetchListings = createAsyncThunk(
+  'listings/fetchAll',
+  async (filters = {}, { getState, rejectWithValue }) => {
+    try {
+      const { token } = getState().auth;
+      const response = await axios.get(`${API_URL}/listings`, {
+        params: filters,
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response.data);
+    }
+  }
+);
+
+// Async action to fetch a single listing
+export const fetchListing = createAsyncThunk(
+  'listings/fetchOne',
+  async (id, { getState, rejectWithValue }) => {
+    try {
+      const { token } = getState().auth;
+      const response = await axios.get(`${API_URL}/listings/${id}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response.data);
+    }
+  }
+);
+
+// Async action to update a listing
+export const updateListing = createAsyncThunk(
+  'listings/update',
+  async ({ id, data }, { getState, rejectWithValue }) => {
+    try {
+      const { token } = getState().auth;
+      const response = await axios.put(`${API_URL}/listings/${id}`, data, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response.data);
+    }
+  }
+);
+
+// Async action to delete a listing
+export const deleteListing = createAsyncThunk(
+  'listings/delete',
+  async (id, { getState, rejectWithValue }) => {
+    try {
+      const { token } = getState().auth;
+      await axios.delete(`${API_URL}/listings/${id}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      return id;
+    } catch (error) {
+      return rejectWithValue(error.response.data);
+    }
+  }
+);
+
+// Async action to fetch nearby listings based on location
+export const fetchNearbyListings = createAsyncThunk(
+  'listings/fetchNearby',
+  async ({ lat, lng, radius }, { getState, rejectWithValue }) => {
+    try {
+      const { token } = getState().auth;
+      const response = await axios.get(`${API_URL}/listings/nearby`, {
+        params: { lat, lng, radius },
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response.data);
+    }
+  }
+);
+
+const initialState = {
+  listings: [],
+  nearbyListings: [],
+  currentListing: null,
+  loading: false,
+  error: null,
+  paginationInfo: {
+    currentPage: 1,
+    totalPages: 1,
+    totalItems: 0,
+  },
+  filters: {
+    category: null,
+    priceRange: null,
+    location: null,
+    quality: null,
+  },
+};
+
+const listingSlice = createSlice({
+  name: 'listings',
+  initialState,
+  reducers: {
+    clearListingError: (state) => {
+      state.error = null;
+    },
+    setFilters: (state, action) => {
+      state.filters = { ...state.filters, ...action.payload };
+    },
+    clearFilters: (state) => {
+      state.filters = {
+        category: null,
+        priceRange: null,
+        location: null,
+        quality: null,
+      };
+    },
+    setPage: (state, action) => {
+      state.paginationInfo.currentPage = action.payload;
+    },
+  },
+  extraReducers: (builder) => {
+    builder
+      // Create listing cases
+      .addCase(createListing.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(createListing.fulfilled, (state, action) => {
+        state.loading = false;
+        state.listings.unshift(action.payload);
+      })
+      .addCase(createListing.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      })
+      // Fetch all listings cases
+      .addCase(fetchListings.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(fetchListings.fulfilled, (state, action) => {
+        state.loading = false;
+        state.listings = action.payload.data;
+        state.paginationInfo = {
+          currentPage: action.payload.current_page,
+          totalPages: action.payload.total_pages,
+          totalItems: action.payload.total_items,
+        };
+      })
+      .addCase(fetchListings.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      })
+      // Fetch one listing cases
+      .addCase(fetchListing.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(fetchListing.fulfilled, (state, action) => {
+        state.loading = false;
+        state.currentListing = action.payload;
+      })
+      .addCase(fetchListing.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      })
+      // Update listing cases
+      .addCase(updateListing.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(updateListing.fulfilled, (state, action) => {
+        state.loading = false;
+        // Update in the listings array
+        const index = state.listings.findIndex(
+          (listing) => listing.id === action.payload.id
+        );
+        if (index !== -1) {
+          state.listings[index] = action.payload;
+        }
+        // Update current listing if it's the same
+        if (state.currentListing && state.currentListing.id === action.payload.id) {
+          state.currentListing = action.payload;
+        }
+      })
+      .addCase(updateListing.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      })
+      // Delete listing cases
+      .addCase(deleteListing.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(deleteListing.fulfilled, (state, action) => {
+        state.loading = false;
+        state.listings = state.listings.filter(
+          (listing) => listing.id !== action.payload
+        );
+        if (state.currentListing && state.currentListing.id === action.payload) {
+          state.currentListing = null;
+        }
+      })
+      .addCase(deleteListing.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      })
+      // Fetch nearby listings cases
+      .addCase(fetchNearbyListings.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(fetchNearbyListings.fulfilled, (state, action) => {
+        state.loading = false;
+        state.nearbyListings = action.payload;
+      })
+      .addCase(fetchNearbyListings.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      });
+  },
+});
+
+export const { clearListingError, setFilters, clearFilters, setPage } = listingSlice.actions;
+export default listingSlice.reducer;
+
+// Transaction Slice for handling transactions
+// transactionSlice.js
+import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
+import axios from 'axios';
+
+const API_URL = 'https://api.mkulimamarket.co.ke/v1';
+
+// Async action to create a transaction from a listing
+export const createTransaction = createAsyncThunk(
+  'transactions/create',
+  async (transactionData, { getState, rejectWithValue }) => {
+    try {
+      const { token } = getState().auth;
+      const response = await axios.post(`${API_URL}/transactions`, transactionData, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response.data);
+    }
+  }
+);
+
+// Async action to fetch all transactions
+export const fetchTransactions = createAsyncThunk(
+  'transactions/fetchAll',
+  async (_, { getState, rejectWithValue }) => {
+    try {
+      const { token } = getState().auth;
+      const response = await axios.get(`${API_URL}/transactions`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response.data);
+    }
+  }
+);
+
+// Async action to fetch a single transaction
+export const fetchTransaction = createAsyncThunk(
+  'transactions/fetchOne',
+  async (id, { getState, rejectWithValue }) => {
+    try {
+      const { token } = getState().auth;
+      const response = await axios.get(`${API_URL}/transactions/${id}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response.data);
+    }
+  }
+);
+
+// Async action to update transaction status
+export const updateTransactionStatus = createAsyncThunk(
+  'transactions/updateStatus',
+  async ({ id, status }, { getState, rejectWithValue }) => {
+    try {
+      const { token } = getState().auth;
+      const response = await axios.put(
+        `${API_URL}/transactions/${id}/status`,
+        { status },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response.data);
+    }
+  }
+);
+
+// Async action to send a message in a transaction
+export const sendTransactionMessage = createAsyncThunk(
+  'transactions/sendMessage',
+  async ({ id, message }, { getState, rejectWithValue }) => {
+    try {
+      const { token } = getState().auth;
+      const response = await axios.post(
+        `${API_URL}/transactions/${id}/messages`,
+        { message },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response.data);
+    }
+  }
+);
+
+// Async action to get messages for a transaction
+export const getTransactionMessages = createAsyncThunk(
+  'transactions/getMessages',
+  async (id, { getState, rejectWithValue }) => {
+    try {
+      const { token } = getState().auth;
+      const response = await axios.get(`${API_URL}/transactions/${id}/messages`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      return { id, messages: response.data };
+    } catch (error) {
+      return rejectWithValue(error.response.data);
+    }
+  }
+);
+
+// Async action to complete a transaction
+export const completeTransaction = createAsyncThunk(
+  'transactions/complete',
+  async (id, { getState, rejectWithValue }) => {
+    try {
+      const { token } = getState().auth;
+      const response = await axios.post(
+        `${API_URL}/transactions/${id}/complete`,
+        {},
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response.data);
+    }
+  }
+);
+
+const initialState = {
+  transactions: [],
+  currentTransaction: null,
+  currentTransactionMessages: [],
+  loading: false,
+  error: null,
+};
+
+const transactionSlice = createSlice({
+  name: 'transactions',
+  initialState,
+  reducers: {
+    clearTransactionError: (state) => {
+      state.error = null;
+    },
+    clearCurrentTransaction: (state) => {
+      state.currentTransaction = null;
+      state.currentTransactionMessages = [];
+    },
+  },
+  extraReducers: (builder) => {
+    builder
+      // Create transaction cases
+      .addCase(createTransaction.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(createTransaction.fulfilled, (state, action) => {
+        state.loading = false;
+        state.transactions.unshift(action.payload);
+        state.currentTransaction = action.payload;
+      })
+      .addCase(createTransaction.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      })
+      // Fetch all transactions cases
+      .addCase(fetchTransactions.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(fetchTransactions.fulfilled, (state, action) => {
+        state.loading = false;
+        state.transactions = action.payload;
+      })
+      .addCase(fetchTransactions.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      })
+      // Fetch one transaction cases
+      .addCase(fetchTransaction.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(fetchTransaction.fulfilled, (state, action) => {
+        state.loading = false;
+        state.currentTransaction = action.payload;
+      })
+      .addCase(fetchTransaction.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      })
+      // Update transaction status cases
+      .addCase(updateTransactionStatus.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(updateTransactionStatus.fulfilled, (state, action) => {
+        state.loading = false;
+        // Update in the transactions array
+        const index = state.transactions.findIndex(
+          (transaction) => transaction.id === action.payload.id
+        );
+        if (index !== -1) {
+          state.transactions[index] = action.payload;
+        }
+        // Update current transaction if it's the same
+        if (state.currentTransaction && state.currentTransaction.id === action.payload.id) {
+          state.currentTransaction = action.payload;
+        }
+      })
+      .addCase(updateTransactionStatus.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      })
+      // Send transaction message cases
+      .addCase(sendTransactionMessage.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(sendTransactionMessage.fulfilled, (state, action) => {
+        state.loading = false;
+        state.currentTransactionMessages.push(action.payload);
+      })
+      .addCase(sendTransactionMessage.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      })
+      // Get transaction messages cases
+      .addCase(getTransactionMessages.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(getTransactionMessages.fulfilled, (state, action) => {
+        state.loading = false;
+        state.currentTransactionMessages = action.payload.messages;
+      })
+      .addCase(getTransactionMessages.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      })
+      // Complete transaction cases
+      .addCase(completeTransaction.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(completeTransaction.fulfilled, (state, action) => {
+        state.loading = false;
+        // Update in the transactions array
+        const index = state.transactions.findIndex(
+          (transaction) => transaction.id === action.payload.id
+        );
+        if (index !== -1) {
+          state.transactions[index] = action.payload;
+        }
+        // Update current transaction if it's the same
+        if (state.currentTransaction && state.currentTransaction.id === action.payload.id) {
+          state.currentTransaction = action.payload;
+        }
+      })
+      .addCase(completeTransaction.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      });
+  },
+});
+
+export const { clearTransactionError, clearCurrentTransaction } = transactionSlice.actions;
+export default transactionSlice.reducer;
+
+// Market Slice for market intelligence data
+// marketSlice.js
+import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
+import axios from 'axios';
+
+const API_URL = 'https://api.mkulimamarket.co.ke/v1';
+
+// Async action to fetch current market prices
+export const fetchMarketPrices = createAsyncThunk(
+  'market/fetchPrices',
+  async (filters = {}, { getState, rejectWithValue }) => {
+    try {
+      const { token } = getState().auth;
+      const response = await axios.get(`${API_URL}/market-prices`, {
+        params: filters,
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response.data);
+    }
+  }
+);
+
+// Async action to fetch price trends
+export const fetchPriceTrends = createAsyncThunk(
+  'market/fetchTrends',
+  async (productId, { getState, rejectWithValue }) => {
+    try {
+      const { token } = getState().auth;
+      const response = await axios.get(`${API_URL}/market-prices/trends`, {
+        params: { product_id: productId },
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response.data);
+    }
+  }
+);
+
+// Async action to fetch products
+export const fetchProducts = createAsyncThunk(
+  'market/fetchProducts',
+  async (_, { getState, rejectWithValue }) => {
+    try {
+      const { token } = getState().auth;
+      const response = await axios.get(`${API_URL}/products`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response.data);
+    }
+  }
+);
+
+// Async action to fetch market demand indicators
+export const fetchMarketDemand = createAsyncThunk(
+  'market/fetchDemand',
+  async (filters = {}, { getState, rejectWithValue }) => {
+    try {
+      const { token } = getState().auth;
+      const response = await axios.get(`${API_URL}/market-demand`, {
+        params: filters,
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response.data);
+    }
+  }
+);
+
+const initialState = {
+  prices: [],
+  trends: {},
+  demand: [],
+  products: [],
+  productCategories: [],
+  loading: false,
+  error: null,
+  lastUpdated: null,
+};
+
+const marketSlice = createSlice({
+  name: 'market',
+  initialState,
+  reducers: {
+    clearMarketError: (state) => {
+      state.error = null;
+    },
+  },
+  extraReducers: (builder) => {
+    builder
+      // Fetch market prices cases
+      .addCase(fetchMarketPrices.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(fetchMarketPrices.fulfilled, (state, action) => {
+        state.loading = false;
+        state.prices = action.payload;
+        state.lastUpdated = new Date().toISOString();
+      })
+      .addCase(fetchMarketPrices.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      })
+      // Fetch price trends cases
+      .addCase(fetchPriceTrends.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(fetchPriceTrends.fulfilled, (state, action) => {
+        state.loading = false;
+        state.trends = {
+          ...state.trends,
+          [action.meta.arg]: action.payload, // Store by product ID
+        };
+      })
+      .addCase(fetchPriceTrends.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      })
+      // Fetch market demand cases
+      .addCase(fetchMarketDemand.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(fetchMarketDemand.fulfilled, (state, action) => {
+        state.loading = false;
+        state.demand = action.payload;
+      })
+      .addCase(fetchMarketDemand.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      })
+      // Fetch products cases
+      .addCase(fetchProducts.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(fetchProducts.fulfilled, (state, action) => {
+        state.loading = false;
+        state.products = action.payload;
+        
+        // Extract unique categories from products
+        const categories = new Set();
+        action.payload.forEach(product => {
+          if (product.category) {
+            categories.add(product.category);
+          }
+        });
+        state.productCategories = Array.from(categories);
+      })
+      .addCase(fetchProducts.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      });
+  },
+});
+
+export const { clearMarketError } = marketSlice.actions;
+export default marketSlice.reducer;
+
+// Logistics Slice
+// logisticsSlice.js
+import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
+import axios from 'axios';
+
+const API_URL = 'https://api.mkulimamarket.co.ke/v1';
+
+// Async action to find nearby transporters
+export const findNearbyTransporters = createAsyncThunk(
+  'logistics/findNearbyTransporters',
+  async ({ lat, lng, radius }, { getState, rejectWithValue }) => {
+    try {
+      const { token } = getState().auth;
+      const response = await axios.get(`${API_URL}/transporters/nearby`, {
+        params: { lat, lng, radius },
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response.data);
+    }
+  }
+);
+
+// Async action to create a transport request
+export const createTransportRequest = createAsyncThunk(
+  'logistics/createRequest',
+  async (requestData, { getState, rejectWithValue }) => {
+    try {
+      const { token } = getState().auth;
+      const response = await axios.post(`${API_URL}/transport-requests`, requestData, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response.data);
+    }
+  }
+);
+
+// Async action to get user's transport requests
+export const fetchTransportRequests = createAsyncThunk(
+  'logistics/fetchRequests',
+  async (_, { getState, rejectWithValue }) => {
+    try {
+      const { token } = getState().auth;
+      const response = await axios.get(`${API_URL}/transport-requests`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response.data);
+    }
+  }
+);
+
+// Async action to update a transport request
+export const updateTransportRequest = createAsyncThunk(
+  'logistics/updateRequest',
+  async ({ id, data }, { getState, rejectWithValue }) => {
+    try {
+      const { token } = getState().auth;
+      const response = await axios.put(`${API_URL}/transport-requests/${id}`, data, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response.data);
+    }
+  }
+);
+
+const initialState = {
+  nearbyTransporters: [],
+  transportRequests: [],
+  currentRequest: null,
+  loading: false,
+  error: null,
+};
+
+const logisticsSlice = createSlice({
+  name: 'logistics',
+  initialState,
+  reducers: {
+    clearLogisticsError: (state) => {
+      state.error = null;
+    },
+    setCurrentRequest: (state, action) => {
+      state.currentRequest = action.payload;
+    },
+    clearCurrentRequest: (state) => {
+      state.currentRequest = null;
+    },
+  },
+  extraReducers: (builder) => {
+    builder
+      // Find nearby transporters cases
+      .addCase(findNearbyTransporters.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(findNearbyTransporters.fulfilled, (state, action) => {
+        state.loading = false;
+        state.nearbyTransporters = action.payload;
+      })
+      .addCase(findNearbyTransporters.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      })
+      // Create transport request cases
+      .addCase(createTransportRequest.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(createTransportRequest.fulfilled, (state, action) => {
+        state.loading = false;
+        state.transportRequests.unshift(action.payload);
+        state.currentRequest = action.payload;
+      })
+      .addCase(createTransportRequest.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      })
+      // Fetch transport requests cases
+      .addCase(fetchTransportRequests.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(fetchTransportRequests.fulfilled, (state, action) => {
+        state.loading = false;
+        state.transportRequests = action.payload;
+      })
+      .addCase(fetchTransportRequests.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      })
+      // Update transport request cases
+      .addCase(updateTransportRequest.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(updateTransportRequest.fulfilled, (state, action) => {
+        state.loading = false;
+        // Update in the request array
+        const index = state.transportRequests.findIndex(
+          (request) => request.id === action.payload.id
+        );
+        if (index !== -1) {
+          state.transportRequests[index] = action.payload;
+        }
+        // Update current request if it's the same
+        if (state.currentRequest && state.currentRequest.id === action.payload.id) {
+          state.currentRequest = action.payload;
+        }
+      })
+      .addCase(updateTransportRequest.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      });
+  },
+});
+
+export const { clearLogisticsError, setCurrentRequest, clearCurrentRequest } = logisticsSlice.actions;
+export default logisticsSlice.reducer;
+
+// UI Slice for managing UI state
+// uiSlice.js
+import { createSlice } from '@reduxjs/toolkit';
+
+const initialState = {
+  theme: 'light',
+  language: 'en', // Default to English
+  notification: null,
+  isLoading: false,
+  globalError: null,
+  menuOpen: false,
+  currentStep: 1, // For multi-step forms
+  dataEntryMode: 'standard', // For handling different data entry modes (standard, offline, etc.)
+  searchParams: {},
+  modalState: {
+    isOpen: false,
+    modalType: null,
+    modalProps: {},
+  },
+  tourState: {
+    active: false,
+    currentStep: 0,
+    completedTours: [],
+  },
+};
+
+const uiSlice = createSlice({
+  name: 'ui',
+  initialState,
+  reducers: {
+    setTheme: (state, action) => {
+      state.theme = action.payload;
+    },
+    setLanguage: (state, action) => {
+      state.language = action.payload;
+    },
+    setNotification: (state, action) => {
+      state.notification = action.payload;
+    },
+    clearNotification: (state) => {
+      state.notification = null;
+    },
+    setLoading: (state, action) => {
+      state.isLoading = action.payload;
+    },
+    setGlobalError: (state, action) => {
+      state.globalError = action.payload;
+    },
+    clearGlobalError: (state) => {
+      state.globalError = null;
+    },
+    toggleMenu: (state) => {
+      state.menuOpen = !state.menuOpen;
+    },
+    setCurrentStep: (state, action) => {
+      state.currentStep = action.payload;
+    },
+    setDataEntryMode: (state, action) => {
+      state.dataEntryMode = action.payload;
+    },
+    setSearchParams: (state, action) => {
+      state.searchParams = { ...state.searchParams, ...action.payload };
+    },
+    clearSearchParams: (state) => {
+      state.searchParams = {};
+    },
+    openModal: (state, action) => {
+      state.modalState = {
+        isOpen: true,
+        modalType: action.payload.modalType,
+        modalProps: action.payload.modalProps || {},
+      };
+    },
+    closeModal: (state) => {
+      state.modalState = {
+        isOpen: false,
+        modalType: null,
+        modalProps: {},
+      };
+    },
+    startTour: (state, action) => {
+      state.tourState = {
+        ...state.tourState,
+        active: true,
+        currentStep: 0,
+        tourType: action.payload,
+      };
+    },
+    setTourStep: (state, action) => {
+      state.tourState.currentStep = action.payload;
+    },
+    endTour: (state) => {
+      const completedTours = [...state.tourState.completedTours];
+      if (state.tourState.tourType && !completedTours.includes(state.tourState.tourType)) {
+        completedTours.push(state.tourState.tourType);
+      }
+      state.tourState = {
+        active: false,
+        currentStep: 0,
+        tourType: null,
+        completedTours,
+      };
+    },
+  },
+});
+
+export const {
+  setTheme,
+  setLanguage,
+  setNotification,
+  clearNotification,
+  setLoading,
+  setGlobalError,
+  clearGlobalError,
+  toggleMenu,
+  setCurrentStep,
+  setDataEntryMode,
+  setSearchParams,
+  clearSearchParams,
+  openModal,
+  closeModal,
+  startTour,
+  setTourStep,
+  endTour,
+} = uiSlice.actions;
+
+export default uiSlice.reducer;
+
+// Offline Slice for managing offline functionality
+// offlineSlice.js
+import { createSlice } from '@reduxjs/toolkit';
+
+const initialState = {
+  isOnline: navigator.onLine,
+  pendingActions: [],
+  offlineData: {
+    pendingListings: [],
+    pendingTransactions: [],
+    pendingMessages: [],
+    pendingTransportRequests: [],
+  },
+  lastSyncTimestamp: null,
+  syncInProgress: false,
+  syncErrors: [],
+};
+
+const offlineSlice = createSlice({
+  name: 'offline',
+  initialState,
+  reducers: {
+    setOnlineStatus: (state, action) => {
+      state.isOnline = action.payload;
+    },
+    addPendingAction: (state, action) => {
+      state.pendingActions.push(action.payload);
+    },
+    removePendingAction: (state, action) => {
+      const actionId = action.payload;
+      state.pendingActions = state.pendingActions.filter(
+        (action) => action.id !== actionId
+      );
+    },
+    clearPendingActions: (state) => {
+      state.pendingActions = [];
+    },
+    addPendingListing: (state, action) => {
+      const listingData = {
+        ...action.payload,
+        offlineId: `offline-listing-${Date.now()}`,
+        createdAt: new Date().toISOString(),
+      };
+      state.offlineData.pendingListings.push(listingData);
+    },
+    updatePendingListing: (state, action) => {
+      const { offlineId, data } = action.payload;
+      const index = state.offlineData.pendingListings.findIndex(
+        (listing) => listing.offlineId === offlineId
+      );
+      if (index !== -1) {
+        state.offlineData.pendingListings[index] = {
+          ...state.offlineData.pendingListings[index],
+          ...data,
+          updatedAt: new Date().toISOString(),
+        };
+      }
+    },
+    removePendingListing: (state, action) => {
+      const offlineId = action.payload;
+      state.offlineData.pendingListings = state.offlineData.pendingListings.filter(
+        (listing) => listing.offlineId !== offlineId
+      );
+    },
+    addPendingTransaction: (state, action) => {
+      const transactionData = {
+        ...action.payload,
+        offlineId: `offline-transaction-${Date.now()}`,
+        createdAt: new Date().toISOString(),
+      };
+      state.offlineData.pendingTransactions.push(transactionData);
+    },
+    updatePendingTransaction: (state, action) => {
+      const { offlineId, data } = action.payload;
+      const index = state.offlineData.pendingTransactions.findIndex(
+        (transaction) => transaction.offlineId === offlineId
+      );
+      if (index !== -1) {
+        state.offlineData.pendingTransactions[index] = {
+          ...state.offlineData.pendingTransactions[index],
+          ...data,
+          updatedAt: new Date().toISOString(),
+        };
+      }
+    },
+    removePendingTransaction: (state, action) => {
+      const offlineId = action.payload;
+      state.offlineData.pendingTransactions = state.offlineData.pendingTransactions.filter(
+        (transaction) => transaction.offlineId !== offlineId
+      );
+    },
+    addPendingMessage: (state, action) => {
+      const messageData = {
+        ...action.payload,
+        offlineId: `offline-message-${Date.now()}`,
+        createdAt: new Date().toISOString(),
+      };
+      state.offlineData.pendingMessages.push(messageData);
+    },
+    removePendingMessage: (state, action) => {
+      const offlineId = action.payload;
+      state.offlineData.pendingMessages = state.offlineData.pendingMessages.filter(
+        (message) => message.offlineId !== offlineId
+      );
+    },
+    addPendingTransportRequest: (state, action) => {
+      const requestData = {
+        ...action.payload,
+        offlineId: `offline-transport-${Date.now()}`,
+        createdAt: new Date().toISOString(),
+      };
+      state.offlineData.pendingTransportRequests.push(requestData);
+    },
+    updatePendingTransportRequest: (state, action) => {
+      const { offlineId, data } = action.payload;
+      const index = state.offlineData.pendingTransportRequests.findIndex(
+        (request) => request.offlineId === offlineId
+      );
+      if (index !== -1) {
+        state.offlineData.pendingTransportRequests[index] = {
+          ...state.offlineData.pendingTransportRequests[index],
+          ...data,
+          updatedAt: new Date().toISOString(),
+        };
+      }
+    },
+    removePendingTransportRequest: (state, action) => {
+      const offlineId = action.payload;
+      state.offlineData.pendingTransportRequests = 
+        state.offlineData.pendingTransportRequests.filter(
+          (request) => request.offlineId !== offlineId
+        );
+    },
+    setSyncStatus: (state, action) => {
+      state.syncInProgress = action.payload;
+    },
+    updateLastSyncTimestamp: (state) => {
+      state.lastSyncTimestamp = new Date().toISOString();
+    },
+    addSyncError: (state, action) => {
+      state.syncErrors.push({
+        id: `sync-error-${Date.now()}`,
+        message: action.payload.message,
+        context: action.payload.context,
+        timestamp: new Date().toISOString(),
+      });
+    },
+    clearSyncErrors: (state) => {
+      state.syncErrors = [];
+    },
+    resetOfflineState: (state) => {
+      state.pendingActions = [];
+      state.offlineData = {
+        pendingListings: [],
+        pendingTransactions: [],
+        pendingMessages: [],
+        pendingTransportRequests: [],
+      };
+      state.syncErrors = [];
+      state.syncInProgress = false;
+    },
+  },
+});
+
+export const {
+  setOnlineStatus,
+  addPendingAction,
+  removePendingAction,
+  clearPendingActions,
+  addPendingListing,
+  updatePendingListing,
+  removePendingListing,
+  addPendingTransaction,
+  updatePendingTransaction,
+  removePendingTransaction,
+  addPendingMessage,
+  removePendingMessage,
+  addPendingTransportRequest,
+  updatePendingTransportRequest,
+  removePendingTransportRequest,
+  setSyncStatus,
+  updateLastSyncTimestamp,
+  addSyncError,
+  clearSyncErrors,
+  resetOfflineState,
+} = offlineSlice.actions;
+
+export default offlineSlice.reducer;
+
+// Configuration for the redux-persist middleware
+// persistConfig.js
+import { persistReducer } from 'redux-persist';
+import storage from 'redux-persist/lib/storage';
+
+export const authPersistConfig = {
+  key: 'auth',
+  storage,
+  whitelist: ['token', 'isAuthenticated', 'user'],
+};
+
+export const userPersistConfig = {
+  key: 'user',
+  storage,
+  whitelist: ['profile', 'farmerProfile', 'buyerProfile', 'locations', 'verificationLevel'],
+};
+
+export const marketPersistConfig = {
+  key: 'market',
+  storage,
+  whitelist: ['prices', 'trends', 'products', 'productCategories', 'lastUpdated'],
+};
+
+export const offlinePersistConfig = {
+  key: 'offline',
+  storage,
+  whitelist: ['pendingActions', 'offlineData', 'lastSyncTimestamp', 'syncErrors'],
+};
+
+export const uiPersistConfig = {
+  key: 'ui',
+  storage,
+  whitelist: ['theme', 'language', 'tourState'],
+};
+
+// Example of selectors for accessing state
+// selectors.js
+
+// Auth selectors
+export const selectIsAuthenticated = (state) => state.auth.isAuthenticated;
+export const selectCurrentUser = (state) => state.auth.user;
+export const selectAuthLoading = (state) => state.auth.loading;
+export const selectAuthError = (state) => state.auth.error;
+
+// User selectors
+export const selectUserProfile = (state) => state.user.profile;
+export const selectFarmerProfile = (state) => state.user.farmerProfile;
+export const selectBuyerProfile = (state) => state.user.buyerProfile;
+export const selectUserLocations = (state) => state.user.locations;
+export const selectVerificationLevel = (state) => state.user.verificationLevel;
+export const selectUserLoading = (state) => state.user.loading;
+
+// Listing selectors
+export const selectAllListings = (state) => state.listings.listings;
+export const selectNearbyListings = (state) => state.listings.nearbyListings;
+export const selectCurrentListing = (state) => state.listings.currentListing;
+export const selectListingFilters = (state) => state.listings.filters;
+export const selectListingPagination = (state) => state.listings.paginationInfo;
+export const selectListingLoading = (state) => state.listings.loading;
+
+// Transaction selectors
+export const selectAllTransactions = (state) => state.transactions.transactions;
+export const selectCurrentTransaction = (state) => state.transactions.currentTransaction;
+export const selectTransactionMessages = (state) => state.transactions.currentTransactionMessages;
+export const selectTransactionLoading = (state) => state.transactions.loading;
+
+// Market selectors
+export const selectMarketPrices = (state) => state.market.prices;
+export const selectPriceTrends = (state, productId) => state.market.trends[productId];
+export const selectMarketDemand = (state) => state.market.demand;
+export const selectProducts = (state) => state.market.products;
+export const selectProductCategories = (state) => state.market.productCategories;
+export const selectMarketLastUpdated = (state) => state.market.lastUpdated;
+export const selectMarketLoading = (state) => state.market.loading;
+
+// Logistics selectors
+export const selectNearbyTransporters = (state) => state.logistics.nearbyTransporters;
+export const selectTransportRequests = (state) => state.logistics.transportRequests;
+export const selectCurrentTransportRequest = (state) => state.logistics.currentRequest;
+export const selectLogisticsLoading = (state) => state.logistics.loading;
+
+// UI selectors
+export const selectTheme = (state) => state.
