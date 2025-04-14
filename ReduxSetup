@@ -1,0 +1,375 @@
+// File: services/api.js
+import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
+
+export const api = createApi({
+  reducerPath: 'api',
+  baseQuery: fetchBaseQuery({ 
+    baseUrl: '/api',
+    prepareHeaders: (headers, { getState }) => {
+      // Get token from auth state
+      const token = getState().auth.token;
+      
+      // If we have a token, add it to the headers
+      if (token) {
+        headers.set('authorization', `Bearer ${token}`);
+      }
+      
+      return headers;
+    },
+  }),
+  tagTypes: ['Listings', 'Transactions', 'User'],
+  endpoints: (builder) => ({
+    // User authentication endpoints
+    login: builder.mutation({
+      query: (credentials) => ({
+        url: '/auth/login',
+        method: 'POST',
+        body: credentials,
+      }),
+      invalidatesTags: ['User'],
+    }),
+    
+    // Listings endpoints
+    getListings: builder.query({
+      query: (params) => ({
+        url: '/listings',
+        params,
+      }),
+      providesTags: ['Listings'],
+    }),
+    getListingById: builder.query({
+      query: (id) => `/listings/${id}`,
+      providesTags: (result, error, id) => [{ type: 'Listings', id }],
+    }),
+    addListing: builder.mutation({
+      query: (listing) => ({
+        url: '/listings',
+        method: 'POST',
+        body: listing,
+      }),
+      invalidatesTags: ['Listings'],
+    }),
+    
+    // Transaction endpoints
+    getTransactions: builder.query({
+      query: () => '/transactions',
+      providesTags: ['Transactions'],
+    }),
+    addTransaction: builder.mutation({
+      query: (transaction) => ({
+        url: '/transactions',
+        method: 'POST',
+        body: transaction,
+      }),
+      invalidatesTags: ['Transactions'],
+    }),
+  }),
+});
+
+// Export the auto-generated hooks
+export const {
+  useLoginMutation,
+  useGetListingsQuery,
+  useGetListingByIdQuery,
+  useAddListingMutation,
+  useGetTransactionsQuery,
+  useAddTransactionMutation,
+} = api;
+
+// File: store/slices/authSlice.js
+import { createSlice } from '@reduxjs/toolkit';
+import { api } from '../../services/api';
+
+const initialState = {
+  user: null,
+  token: localStorage.getItem('token') || null,
+  isAuthenticated: !!localStorage.getItem('token'),
+  isLoading: false,
+  error: null,
+};
+
+const authSlice = createSlice({
+  name: 'auth',
+  initialState,
+  reducers: {
+    logout: (state) => {
+      state.user = null;
+      state.token = null;
+      state.isAuthenticated = false;
+      localStorage.removeItem('token');
+    },
+    setCredentials: (state, { payload }) => {
+      state.user = payload.user;
+      state.token = payload.token;
+      state.isAuthenticated = true;
+      localStorage.setItem('token', payload.token);
+    },
+  },
+  extraReducers: (builder) => {
+    builder
+      .addMatcher(
+        api.endpoints.login.matchPending,
+        (state) => {
+          state.isLoading = true;
+          state.error = null;
+        }
+      )
+      .addMatcher(
+        api.endpoints.login.matchFulfilled,
+        (state, { payload }) => {
+          state.isLoading = false;
+          state.user = payload.user;
+          state.token = payload.token;
+          state.isAuthenticated = true;
+          localStorage.setItem('token', payload.token);
+        }
+      )
+      .addMatcher(
+        api.endpoints.login.matchRejected,
+        (state, { payload }) => {
+          state.isLoading = false;
+          state.error = payload;
+        }
+      );
+  },
+});
+
+export const { logout, setCredentials } = authSlice.actions;
+export default authSlice.reducer;
+
+// File: store/slices/listingsSlice.js
+import { createSlice } from '@reduxjs/toolkit';
+import { api } from '../../services/api';
+
+const initialState = {
+  items: [],
+  selectedListing: null,
+  isLoading: false,
+  error: null,
+};
+
+const listingsSlice = createSlice({
+  name: 'listings',
+  initialState,
+  reducers: {
+    setSelectedListing: (state, action) => {
+      state.selectedListing = action.payload;
+    },
+    clearSelectedListing: (state) => {
+      state.selectedListing = null;
+    },
+  },
+  extraReducers: (builder) => {
+    builder
+      .addMatcher(
+        api.endpoints.getListings.matchPending,
+        (state) => {
+          state.isLoading = true;
+          state.error = null;
+        }
+      )
+      .addMatcher(
+        api.endpoints.getListings.matchFulfilled,
+        (state, { payload }) => {
+          state.isLoading = false;
+          state.items = payload;
+        }
+      )
+      .addMatcher(
+        api.endpoints.getListings.matchRejected,
+        (state, { payload }) => {
+          state.isLoading = false;
+          state.error = payload;
+        }
+      );
+  },
+});
+
+export const { setSelectedListing, clearSelectedListing } = listingsSlice.actions;
+export default listingsSlice.reducer;
+
+// File: store/slices/transactionsSlice.js
+import { createSlice } from '@reduxjs/toolkit';
+import { api } from '../../services/api';
+
+const initialState = {
+  items: [],
+  isLoading: false,
+  error: null,
+};
+
+const transactionsSlice = createSlice({
+  name: 'transactions',
+  initialState,
+  reducers: {},
+  extraReducers: (builder) => {
+    builder
+      .addMatcher(
+        api.endpoints.getTransactions.matchPending,
+        (state) => {
+          state.isLoading = true;
+          state.error = null;
+        }
+      )
+      .addMatcher(
+        api.endpoints.getTransactions.matchFulfilled,
+        (state, { payload }) => {
+          state.isLoading = false;
+          state.items = payload;
+        }
+      )
+      .addMatcher(
+        api.endpoints.getTransactions.matchRejected,
+        (state, { payload }) => {
+          state.isLoading = false;
+          state.error = payload;
+        }
+      );
+  },
+});
+
+export default transactionsSlice.reducer;
+
+// File: store/slices/offlineDataSlice.js
+import { createSlice } from '@reduxjs/toolkit';
+
+const initialState = {
+  pendingActions: [],
+  lastSyncTimestamp: null,
+  isOnline: navigator.onLine,
+};
+
+const offlineDataSlice = createSlice({
+  name: 'offlineData',
+  initialState,
+  reducers: {
+    addPendingAction: (state, action) => {
+      state.pendingActions.push(action.payload);
+    },
+    removePendingAction: (state, action) => {
+      state.pendingActions = state.pendingActions.filter(
+        (pendingAction) => pendingAction.id !== action.payload
+      );
+    },
+    setOnlineStatus: (state, action) => {
+      state.isOnline = action.payload;
+    },
+    setLastSyncTimestamp: (state) => {
+      state.lastSyncTimestamp = Date.now();
+    },
+  },
+});
+
+export const {
+  addPendingAction,
+  removePendingAction,
+  setOnlineStatus,
+  setLastSyncTimestamp,
+} = offlineDataSlice.actions;
+export default offlineDataSlice.reducer;
+
+// File: store/slices/uiSlice.js
+import { createSlice } from '@reduxjs/toolkit';
+
+const initialState = {
+  darkMode: localStorage.getItem('darkMode') === 'true',
+  sidebarOpen: true,
+  notifications: [],
+  currentModal: null,
+};
+
+const uiSlice = createSlice({
+  name: 'ui',
+  initialState,
+  reducers: {
+    toggleDarkMode: (state) => {
+      state.darkMode = !state.darkMode;
+      localStorage.setItem('darkMode', state.darkMode);
+    },
+    toggleSidebar: (state) => {
+      state.sidebarOpen = !state.sidebarOpen;
+    },
+    addNotification: (state, action) => {
+      state.notifications.push({
+        id: Date.now().toString(),
+        ...action.payload,
+      });
+    },
+    removeNotification: (state, action) => {
+      state.notifications = state.notifications.filter(
+        (notification) => notification.id !== action.payload
+      );
+    },
+    setCurrentModal: (state, action) => {
+      state.currentModal = action.payload;
+    },
+  },
+});
+
+export const {
+  toggleDarkMode,
+  toggleSidebar,
+  addNotification,
+  removeNotification,
+  setCurrentModal,
+} = uiSlice.actions;
+export default uiSlice.reducer;
+
+// File: store/rootReducer.js
+import { combineReducers } from '@reduxjs/toolkit';
+
+import authReducer from './slices/authSlice';
+import listingsReducer from './slices/listingsSlice';
+import transactionsReducer from './slices/transactionsSlice';
+import offlineDataReducer from './slices/offlineDataSlice';
+import uiReducer from './slices/uiSlice';
+import { api } from '../services/api';
+
+const rootReducer = combineReducers({
+  auth: authReducer,
+  listings: listingsReducer,
+  transactions: transactionsReducer,
+  offlineData: offlineDataReducer,
+  ui: uiReducer,
+  [api.reducerPath]: api.reducer,
+});
+
+export default rootReducer;
+
+// File: store/store.js
+import { configureStore } from '@reduxjs/toolkit';
+import { setupListeners } from '@reduxjs/toolkit/query';
+import rootReducer from './rootReducer';
+import { api } from '../services/api';
+
+const store = configureStore({
+  reducer: rootReducer,
+  middleware: (getDefaultMiddleware) =>
+    getDefaultMiddleware({
+      serializableCheck: {
+        // Ignore these action types
+        ignoredActions: ['persist/PERSIST'],
+      },
+    }).concat(api.middleware),
+});
+
+// Optional, but required for refetchOnFocus/refetchOnReconnect behaviors
+setupListeners(store.dispatch);
+
+export default store;
+
+// File: index.js (App Entry Point)
+import React from 'react';
+import ReactDOM from 'react-dom';
+import { Provider } from 'react-redux';
+import App from './App';
+import store from './store/store';
+
+ReactDOM.render(
+  <React.StrictMode>
+    <Provider store={store}>
+      <App />
+    </Provider>
+  </React.StrictMode>,
+  document.getElementById('root')
+);
