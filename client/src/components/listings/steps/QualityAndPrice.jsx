@@ -1,0 +1,354 @@
+// QualityAndPrice.jsx - Step 2 of the create listing flow
+import React, { useState, useEffect } from 'react';
+import listingsApi from '../../../store/api/listingsApi';
+
+/**
+ * Second step in product listing creation flow
+ * Allows specification of quality attributes and pricing information
+ */
+const QualityAndPrice = ({ onNext, onBack, initialData = {}, onDataChange }) => {
+  const [marketPrices, setMarketPrices] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [formData, setFormData] = useState({
+    quality: {
+      description: initialData.quality?.description || '',
+      attributes: initialData.quality?.attributes || {},
+      grade: initialData.quality?.grade || ''
+    },
+    price: {
+      amount: initialData.price?.amount || '',
+      currency: initialData.price?.currency || 'KES',
+      is_negotiable: initialData.price?.is_negotiable || false,
+      min_acceptable: initialData.price?.min_acceptable || ''
+    },
+    ...initialData
+  });
+
+  // Load market price data when component mounts
+  useEffect(() => {
+    const loadMarketPrices = async () => {
+      if (!initialData.product_id) return;
+
+      try {
+        setLoading(true);
+        const data = await listingsApi.getMarketPrices(initialData.product_id);
+        setMarketPrices(data);
+        setLoading(false);
+      } catch (err) {
+        console.error('Error loading market prices:', err);
+        setLoading(false);
+      }
+    };
+
+    loadMarketPrices();
+  }, [initialData.product_id]);
+
+  // Update parent component when form data changes
+  useEffect(() => {
+    if (onDataChange) {
+      onDataChange(formData);
+    }
+  }, [formData, onDataChange]);
+
+  // Handle form input changes
+  const handleChange = (e) => {
+    const { name, value, type, checked } = e.target;
+
+    if (name.startsWith('quality.')) {
+      const qualityField = name.split('.')[1];
+      setFormData({
+        ...formData,
+        quality: {
+          ...formData.quality,
+          [qualityField]: value
+        }
+      });
+    } else if (name.startsWith('quality.attributes.')) {
+      const attributeField = name.split('.')[2];
+      setFormData({
+        ...formData,
+        quality: {
+          ...formData.quality,
+          attributes: {
+            ...formData.quality.attributes,
+            [attributeField]: value
+          }
+        }
+      });
+    } else if (name.startsWith('price.')) {
+      const priceField = name.split('.')[1];
+      const fieldValue = type === 'checkbox' ? checked : value;
+
+      setFormData({
+        ...formData,
+        price: {
+          ...formData.price,
+          [priceField]: fieldValue
+        }
+      });
+    } else {
+      setFormData({
+        ...formData,
+        [name]: value
+      });
+    }
+  };
+
+  // Validate form before proceeding to next step
+  const validateForm = () => {
+    if (!formData.quality.description) {
+      setError('Please provide a quality description');
+      return false;
+    }
+    if (!formData.quality.grade) {
+      setError('Please select a quality grade');
+      return false;
+    }
+    if (!formData.price.amount) {
+      setError('Please enter a price');
+      return false;
+    }
+    if (isNaN(formData.price.amount) || Number(formData.price.amount) <= 0) {
+      setError('Please enter a valid price');
+      return false;
+    }
+    if (formData.price.is_negotiable && (!formData.price.min_acceptable ||
+      isNaN(formData.price.min_acceptable) ||
+      Number(formData.price.min_acceptable) <= 0 ||
+      Number(formData.price.min_acceptable) >= Number(formData.price.amount))) {
+      setError('Please enter a valid minimum acceptable price (must be less than your asking price)');
+      return false;
+    }
+
+    return true;
+  };
+
+  // Handle form submission
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    setError(null);
+
+    if (validateForm()) {
+      onNext(formData);
+    }
+  };
+
+  // Quality grade options based on common standards in Kenya
+  const gradeOptions = [
+    { value: 'A', label: 'Grade A (Premium)' },
+    { value: 'B', label: 'Grade B (Standard)' },
+    { value: 'C', label: 'Grade C (Economic)' },
+    { value: 'mixed', label: 'Mixed Grades' }
+  ];
+
+  // Generate quality attributes fields based on product type
+  const renderQualityAttributes = () => {
+    // This would be dynamic based on the product selected
+    // For demo purposes, showing some common attributes
+    return (
+      <div className="grid grid-cols-1 gap-4 mb-4">
+        <div>
+          <label className="block text-gray-700 font-medium mb-1">
+            Size
+          </label>
+          <select
+            name="quality.attributes.size"
+            value={formData.quality.attributes.size || ''}
+            onChange={handleChange}
+            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+          >
+            <option value="">Select Size</option>
+            <option value="small">Small</option>
+            <option value="medium">Medium</option>
+            <option value="large">Large</option>
+            <option value="mixed">Mixed Sizes</option>
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-gray-700 font-medium mb-1">
+            Freshness
+          </label>
+          <select
+            name="quality.attributes.freshness"
+            value={formData.quality.attributes.freshness || ''}
+            onChange={handleChange}
+            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+          >
+            <option value="">Select Freshness</option>
+            <option value="freshly_harvested">Freshly Harvested</option>
+            <option value="1_2_days">1-2 Days Old</option>
+            <option value="3_5_days">3-5 Days Old</option>
+            <option value="over_week">Over a Week</option>
+          </select>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="bg-white p-4 rounded-lg shadow">
+      <h2 className="text-xl font-bold text-gray-800 mb-4">Quality & Price</h2>
+
+      {error && (
+        <div className="bg-red-50 text-red-700 p-3 rounded-md mb-4">
+          {error}
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit}>
+        {/* Quality Description */}
+        <div className="mb-4">
+          <label className="block text-gray-700 font-medium mb-2">
+            Quality Description *
+          </label>
+          <textarea
+            name="quality.description"
+            value={formData.quality.description}
+            onChange={handleChange}
+            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+            rows="3"
+            placeholder="Describe the quality of your product (e.g., freshness, appearance, etc.)"
+            required
+          ></textarea>
+        </div>
+
+        {/* Quality Grade */}
+        <div className="mb-4">
+          <label className="block text-gray-700 font-medium mb-2">
+            Quality Grade *
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            {gradeOptions.map((grade) => (
+              <label
+                key={grade.value}
+                className={`
+                  flex items-center justify-center p-3 border rounded-lg cursor-pointer transition-colors
+                  ${formData.quality.grade === grade.value
+                    ? 'bg-green-100 border-green-500 text-green-700'
+                    : 'border-gray-300 hover:bg-gray-50'}
+                `}
+              >
+                <input
+                  type="radio"
+                  name="quality.grade"
+                  value={grade.value}
+                  checked={formData.quality.grade === grade.value}
+                  onChange={handleChange}
+                  className="sr-only"
+                />
+                {grade.label}
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {/* Quality Attributes - Dynamic based on product */}
+        <div className="mb-4">
+          <label className="block text-gray-700 font-medium mb-2">
+            Quality Attributes
+          </label>
+          {renderQualityAttributes()}
+        </div>
+
+        {/* Price Section */}
+        <div className="mb-4">
+          <label className="block text-gray-700 font-medium mb-2">
+            Price per {initialData?.quantity?.unit || 'unit'} *
+          </label>
+
+          {/* Market Price Reference */}
+          {marketPrices && (
+            <div className="mb-3 p-3 bg-blue-50 rounded-lg text-blue-800 text-sm">
+              <p className="font-medium">Current Market Prices (Reference):</p>
+              <div className="flex justify-between mt-1">
+                <span>Low: KES {marketPrices.low_price}/{initialData?.quantity?.unit || 'unit'}</span>
+                <span>Average: KES {marketPrices.average_price}/{initialData?.quantity?.unit || 'unit'}</span>
+                <span>High: KES {marketPrices.high_price}/{initialData?.quantity?.unit || 'unit'}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Price Input */}
+          <div className="flex items-center">
+            <span className="inline-flex items-center px-3 text-gray-500 bg-gray-200 rounded-l-lg border border-r-0 border-gray-300">
+              KES
+            </span>
+            <input
+              type="number"
+              name="price.amount"
+              value={formData.price.amount}
+              onChange={handleChange}
+              className="flex-1 p-3 border border-gray-300 rounded-r-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+              placeholder="Enter price"
+              min="0"
+              step="0.01"
+              required
+            />
+          </div>
+
+          {/* Negotiable Price Toggle */}
+          <div className="mt-3">
+            <label className="inline-flex items-center">
+              <input
+                type="checkbox"
+                name="price.is_negotiable"
+                checked={formData.price.is_negotiable}
+                onChange={handleChange}
+                className="rounded text-green-600 focus:ring-green-500 h-5 w-5"
+              />
+              <span className="ml-2 text-gray-700">
+                Price is negotiable
+              </span>
+            </label>
+          </div>
+
+          {/* Minimum Acceptable Price - Only shown if negotiable */}
+          {formData.price.is_negotiable && (
+            <div className="mt-3">
+              <label className="block text-gray-700 font-medium mb-1">
+                Minimum Acceptable Price
+              </label>
+              <div className="flex items-center">
+                <span className="inline-flex items-center px-3 text-gray-500 bg-gray-200 rounded-l-lg border border-r-0 border-gray-300">
+                  KES
+                </span>
+                <input
+                  type="number"
+                  name="price.min_acceptable"
+                  value={formData.price.min_acceptable}
+                  onChange={handleChange}
+                  className="flex-1 p-3 border border-gray-300 rounded-r-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                  placeholder="Lowest price you'll accept"
+                  min="0"
+                  step="0.01"
+                  required
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Navigation Buttons */}
+        <div className="mt-6 flex justify-between gap-4">
+          <button
+            type="button"
+            onClick={() => onBack(formData)}
+            className="w-1/2 bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-3 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-50 transition duration-200"
+          >
+            Back
+          </button>
+          <button
+            type="submit"
+            className="w-1/2 bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50 transition duration-200"
+          >
+            Continue
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+};
+
+export default QualityAndPrice;

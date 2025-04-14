@@ -1,0 +1,387 @@
+import React, { useEffect, useState } from 'react';
+import { fetchBuyerDashboardData } from '../../store/api/dashboardApi';
+import LoadingSpinner from '../common/LoadingSpinner';
+import ErrorMessage from '../common/ErrorMessage';
+
+const BuyerDashboard = ({ buyerId }) => {
+  const [dashboardData, setDashboardData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    const loadDashboardData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const data = await fetchBuyerDashboardData(buyerId);
+        setDashboardData(data);
+      } catch (err) {
+        setError('Hatukuweza kupata data yako. Tafadhali jaribu tena.');
+        console.error('Failed to load buyer dashboard:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadDashboardData();
+  }, [buyerId]);
+
+  const handleRetry = () => {
+    setLoading(true);
+    setError(null);
+    fetchBuyerDashboardData(buyerId)
+      .then(data => setDashboardData(data))
+      .catch(err => {
+        setError('Hatukuweza kupata data yako. Tafadhali jaribu tena.');
+        console.error('Failed to load buyer dashboard:', err);
+      })
+      .finally(() => setLoading(false));
+  };
+
+  if (loading) {
+    return <LoadingSpinner message="Inapakia dashboard yako..." />;
+  }
+
+  if (error) {
+    return <ErrorMessage message={error} onRetry={handleRetry} />;
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Header section */}
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-gray-800">Karibu Mnunuzi</h1>
+        <button className="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">
+          + Tafuta Bidhaa
+        </button>
+      </div>
+
+      {/* Stats overview */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <StatCard
+          title="Manunuzi Yaliyokamilika"
+          value={dashboardData.completedPurchases.length}
+          icon="check-circle"
+          color="bg-green-500"
+        />
+        <StatCard
+          title="Manunuzi Yanaendelea"
+          value={dashboardData.pendingTransactions.length}
+          icon="clock"
+          color="bg-yellow-500"
+        />
+        <StatCard
+          title="Wauzaji Wapatikanao"
+          value={dashboardData.suppliers.total}
+          icon="users"
+          color="bg-blue-500"
+        />
+        <StatCard
+          title="Jumla Imetumika (KES)"
+          value={dashboardData.totalSpent.toLocaleString()}
+          icon="cash"
+          color="bg-purple-500"
+        />
+      </div>
+
+      {/* Recommended listings */}
+      <div className="bg-white rounded-lg shadow p-4">
+        <h2 className="text-lg font-medium mb-4">Bidhaa Zinazopendekezwa</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {dashboardData.recommendedListings.map((listing) => (
+            <ProductCard key={listing.id} listing={listing} />
+          ))}
+        </div>
+      </div>
+
+      {/* Pending transactions */}
+      <div className="bg-white rounded-lg shadow p-4">
+        <h2 className="text-lg font-medium mb-4">Manunuzi Yanayoendelea</h2>
+        {dashboardData.pendingTransactions.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Mkulima</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Bidhaa</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Kiasi</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Jumla (KES)</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Hali</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Vitendo</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {dashboardData.pendingTransactions.map((transaction) => (
+                  <tr key={transaction.id}>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <div className="flex items-center">
+                        <div className="text-sm font-medium text-gray-900">{transaction.seller_name}</div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">{transaction.product_name}</div>
+                      <div className="text-xs text-gray-500">{transaction.product_quality || 'Kawaida'}</div>
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">{transaction.quantity} {transaction.unit}</div>
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+                      {transaction.total_amount.toLocaleString()}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <StatusBadge status={transaction.status} />
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-sm font-medium">
+                      <button className="text-blue-600 hover:text-blue-900 mr-3">Angalia</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="text-center py-4 bg-gray-50 rounded">
+            <p className="text-gray-500">Hakuna manunuzi yanayoendelea kwa sasa</p>
+            <button className="mt-2 px-4 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700">
+              + Tafuta Bidhaa
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Recent suppliers */}
+      <div className="bg-white rounded-lg shadow p-4">
+        <h2 className="text-lg font-medium mb-4">Wauzaji wa Hivi Karibuni</h2>
+        {dashboardData.suppliers.recent.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {dashboardData.suppliers.recent.map((supplier) => (
+              <SupplierCard key={supplier.id} supplier={supplier} />
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-4 bg-gray-50 rounded">
+            <p className="text-gray-500">Bado haujafanya biashara na wauzaji wowote</p>
+          </div>
+        )}
+      </div>
+
+      {/* Purchase history */}
+      <div className="bg-white rounded-lg shadow p-4">
+        <h2 className="text-lg font-medium mb-4">Historia ya Manunuzi</h2>
+        {dashboardData.completedPurchases.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Mkulima</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Bidhaa</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Kiasi</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Jumla (KES)</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tarehe</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {dashboardData.completedPurchases.slice(0, 5).map((transaction) => (
+                  <tr key={transaction.id}>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900">{transaction.seller_name}</div>
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">{transaction.product_name}</div>
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">{transaction.quantity} {transaction.unit}</div>
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+                      {transaction.total_amount.toLocaleString()}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
+                      {new Date(transaction.completed_date).toLocaleDateString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="text-center py-4 bg-gray-50 rounded">
+            <p className="text-gray-500">Hakuna manunuzi yaliyokamilika bado</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// Helper component for stat cards
+const StatCard = ({ title, value, icon, color }) => {
+  return (
+    <div className="bg-white rounded-lg shadow p-4 flex items-center">
+      <div className={`${color} rounded-full p-3 mr-4`}>
+        <svg className="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          {icon === "check-circle" && (
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          )}
+          {icon === "clock" && (
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          )}
+          {icon === "users" && (
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+          )}
+          {icon === "cash" && (
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2z" />
+          )}
+        </svg>
+      </div>
+      <div>
+        <p className="text-sm font-medium text-gray-600">{title}</p>
+        <p className="text-lg font-semibold text-gray-900">{value}</p>
+      </div>
+    </div>
+  );
+};
+
+// Helper component for product cards
+const ProductCard = ({ listing }) => {
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+      <div className="h-40 bg-gray-200 relative">
+        {listing.images && listing.images.length > 0 ? (
+          <img
+            src={listing.images[0]}
+            alt={listing.title}
+            className="h-full w-full object-cover"
+          />
+        ) : (
+          <div className="h-full w-full flex items-center justify-center bg-gray-200">
+            <svg className="h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+          </div>
+        )}
+        <div className="absolute top-2 right-2 bg-green-500 text-white px-2 py-1 rounded-full text-xs font-semibold">
+          Inapatikana
+        </div>
+      </div>
+      <div className="p-4">
+        <h3 className="text-lg font-semibold text-gray-900 mb-1">{listing.title}</h3>
+        <p className="text-sm text-gray-600 mb-2">{listing.quality?.description || 'Ubora wa Kawaida'}</p>
+        <div className="flex justify-between items-center">
+          <span className="text-lg font-bold text-gray-900">KES {listing.price.amount}</span>
+          <span className="text-sm text-gray-600">{listing.quantity.value} {listing.quantity.unit}</span>
+        </div>
+        <div className="mt-3 flex items-center text-sm text-gray-500">
+          <svg className="h-4 w-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+          {listing.location?.county || 'Eneo Halijulikani'}
+        </div>
+        <button className="mt-3 w-full bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700">
+          Nunua Sasa
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// Helper component for supplier cards
+const SupplierCard = ({ supplier }) => {
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm hover:shadow-md transition-shadow">
+      <div className="flex items-center mb-3">
+        <div className="h-12 w-12 rounded-full bg-gray-200 flex items-center justify-center mr-3">
+          {supplier.profile_image ? (
+            <img
+              src={supplier.profile_image}
+              alt={supplier.name}
+              className="h-12 w-12 rounded-full object-cover"
+            />
+          ) : (
+            <svg className="h-6 w-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+            </svg>
+          )}
+        </div>
+        <div>
+          <h3 className="text-md font-semibold text-gray-900">{supplier.name}</h3>
+          <div className="flex items-center text-sm text-gray-600">
+            <svg className="h-4 w-4 mr-1 text-yellow-400" fill="currentColor" viewBox="0 0 20 20">
+              <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+            </svg>
+            {supplier.rating} ({supplier.reviews_count} reviews)
+          </div>
+        </div>
+      </div>
+      <div className="text-sm text-gray-600 mb-2">
+        <div className="flex items-center mb-1">
+          <svg className="h-4 w-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+          {supplier.location}
+        </div>
+        <div className="flex items-center">
+          <svg className="h-4 w-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+          </svg>
+          {supplier.transactions_count} manunuzi
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-1 my-2">
+        {supplier.products.map((product, index) => (
+          <span key={index} className="bg-gray-100 text-gray-800 text-xs px-2 py-1 rounded">
+            {product}
+          </span>
+        ))}
+      </div>
+      <button className="mt-2 w-full bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700">
+        Tazama Bidhaa
+      </button>
+    </div>
+  );
+};
+
+// Helper component for status badges
+const StatusBadge = ({ status }) => {
+  let color = '';
+  let text = '';
+
+  switch (status) {
+    case 'initiated':
+      color = 'bg-blue-100 text-blue-800';
+      text = 'Imeanzishwa';
+      break;
+    case 'agreed':
+      color = 'bg-purple-100 text-purple-800';
+      text = 'Imekubaliwa';
+      break;
+    case 'in_progress':
+      color = 'bg-yellow-100 text-yellow-800';
+      text = 'Inaendelea';
+      break;
+    case 'completed':
+      color = 'bg-green-100 text-green-800';
+      text = 'Imekamilika';
+      break;
+    case 'cancelled':
+      color = 'bg-red-100 text-red-800';
+      text = 'Imesitishwa';
+      break;
+    case 'disputed':
+      color = 'bg-orange-100 text-orange-800';
+      text = 'Inabishaniwa';
+      break;
+    default:
+      color = 'bg-gray-100 text-gray-800';
+      text = status;
+  }
+
+  return (
+    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${color}`}>
+      {text}
+    </span>
+  );
+};
+
+export default BuyerDashboard;

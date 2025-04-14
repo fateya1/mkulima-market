@@ -1,0 +1,359 @@
+/**
+ * MkulimaMarket - Offline Data Slice
+ * 
+ * This module handles offline data management for the MkulimaMarket platform,
+ * ensuring users can continue using essential features even with limited connectivity.
+ * It implements IndexedDB for structured data storage and provides synchronization
+ * with the server when connectivity is restored.
+ */
+
+import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
+import { openDB } from 'idb';
+import { networkService } from '../../services/networkService.js';
+// import { syncQueueService } from '../../services/storageService.js';
+
+// Initialize the IndexedDB database
+const initializeDB = async () => {
+  return openDB('mkulimaMarket', 1, {
+    upgrade(db) {
+      // Create object stores for different data types
+      if (!db.objectStoreNames.contains('listings')) {
+        db.createObjectStore('listings', { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains('transactions')) {
+        db.createObjectStore('transactions', { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains('userProfile')) {
+        db.createObjectStore('userProfile', { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains('syncQueue')) {
+        db.createObjectStore('syncQueue', { keyPath: 'id', autoIncrement: true });
+      }
+      if (!db.objectStoreNames.contains('marketPrices')) {
+        db.createObjectStore('marketPrices', { keyPath: 'id' });
+      }
+    }
+  });
+};
+
+// Initialize the database
+const dbPromise = initializeDB();
+
+// Async thunks for offline data operations
+export const cacheListings = createAsyncThunk(
+  'offline/cacheListings',
+  async (listings, { rejectWithValue }) => {
+    try {
+      const db = await dbPromise;
+      const tx = db.transaction('listings', 'readwrite');
+      const store = tx.objectStore('listings');
+
+      // Store each listing in IndexedDB
+      for (const listing of listings) {
+        await store.put(listing);
+      }
+
+      await tx.done;
+      return listings;
+    } catch (error) {
+      return rejectWithValue(error.message);
+    }
+  }
+);
+
+export const getOfflineListings = createAsyncThunk(
+  'offline/getOfflineListings',
+  async (_, { rejectWithValue }) => {
+    try {
+      const db = await dbPromise;
+      const listings = await db.getAll('listings');
+      return listings;
+    } catch (error) {
+      return rejectWithValue(error.message);
+    }
+  }
+);
+
+export const saveTransaction = createAsyncThunk(
+  'offline/saveTransaction',
+  async (transaction, { rejectWithValue, dispatch }) => {
+    try {
+      const db = await dbPromise;
+      const tx = db.transaction('transactions', 'readwrite');
+      const store = tx.objectStore('transactions');
+
+      // Save transaction to local database
+      await store.put(transaction);
+      await tx.done;
+
+      // Add to sync queue if offline
+      if (!networkService.isOnline()) {
+        await dispatch(addToSyncQueue({
+          type: 'transaction',
+          action: 'create',
+          data: transaction,
+          timestamp: Date.now()
+        }));
+      }
+
+      return transaction;
+    } catch (error) {
+      return rejectWithValue(error.message);
+    }
+  }
+);
+
+export const getOfflineTransactions = createAsyncThunk(
+  'offline/getOfflineTransactions',
+  async (_, { rejectWithValue }) => {
+    try {
+      const db = await dbPromise;
+      const transactions = await db.getAll('transactions');
+      return transactions;
+    } catch (error) {
+      return rejectWithValue(error.message);
+    }
+  }
+);
+
+export const addToSyncQueue = createAsyncThunk(
+  'offline/addToSyncQueue',
+  async (syncItem, { rejectWithValue }) => {
+    try {
+      const db = await dbPromise;
+      const tx = db.transaction('syncQueue', 'readwrite');
+      const store = tx.objectStore('syncQueue');
+
+      const id = await store.add(syncItem);
+      await tx.done;
+
+      return { ...syncItem, id };
+    } catch (error) {
+      return rejectWithValue(error.message);
+    }
+  }
+);
+
+export const processSyncQueue = createAsyncThunk(
+  'offline/processSyncQueue',
+  async (_, { rejectWithValue, dispatch }) => {
+    // Only process queue when online
+    if (!networkService.isOnline()) {
+      return rejectWithValue('Device is offline');
+    }
+
+    try {
+      const db = await dbPromise;
+      const syncItems = await db.getAll('syncQueue');
+
+      const results = {
+        success: [],
+        failed: []
+      };
+
+      // Process each item in the queue
+      for (const item of syncItems) {
+        try {
+          await syncQueueService.processItem(item);
+
+          // Remove from queue after successful processing
+          await db.delete('syncQueue', item.id);
+          results.success.push(item);
+        } catch (error) {
+          console.error('Failed to sync item:', item, error);
+          results.failed.push(item);
+        }
+      }
+
+      return results;
+    } catch (error) {
+      return rejectWithValue(error.message);
+    }
+  }
+);
+
+export const cacheMarketPrices = createAsyncThunk(
+  'offline/cacheMarketPrices',
+  async (prices, { rejectWithValue }) => {
+    try {
+      const db = await dbPromise;
+      const tx = db.transaction('marketPrices', 'readwrite');
+      const store = tx.objectStore('marketPrices');
+
+      // Store each price entry in IndexedDB
+      for (const price of prices) {
+        await store.put(price);
+      }
+
+      await tx.done;
+      return prices;
+    } catch (error) {
+      return rejectWithValue(error.message);
+    }
+  }
+);
+
+export const getOfflineMarketPrices = createAsyncThunk(
+  'offline/getOfflineMarketPrices',
+  async (_, { rejectWithValue }) => {
+    try {
+      const db = await dbPromise;
+      const prices = await db.getAll('marketPrices');
+      return prices;
+    } catch (error) {
+      return rejectWithValue(error.message);
+    }
+  }
+);
+
+// Create the offline data slice
+const offlineDataSlice = createSlice({
+  name: 'offlineData',
+  initialState: {
+    isInitialized: false,
+    syncStatus: {
+      lastSyncAttempt: null,
+      lastSuccessfulSync: null,
+      pendingSyncItems: 0,
+      isSyncing: false
+    },
+    cachedData: {
+      listings: [],
+      transactions: [],
+      marketPrices: []
+    },
+    offlineMode: false,
+    error: null,
+    loading: false
+  },
+  reducers: {
+    setOfflineMode: (state, action) => {
+      state.offlineMode = action.payload;
+    },
+    setInitialized: (state, action) => {
+      state.isInitialized = action.payload;
+    }
+  },
+  extraReducers: (builder) => {
+    // Cache listings
+    builder.addCase(cacheListings.pending, (state) => {
+      state.loading = true;
+    });
+    builder.addCase(cacheListings.fulfilled, (state, action) => {
+      state.loading = false;
+      state.cachedData.listings = action.payload;
+    });
+    builder.addCase(cacheListings.rejected, (state, action) => {
+      state.loading = false;
+      state.error = action.payload;
+    });
+
+    // Get offline listings
+    builder.addCase(getOfflineListings.pending, (state) => {
+      state.loading = true;
+    });
+    builder.addCase(getOfflineListings.fulfilled, (state, action) => {
+      state.loading = false;
+      state.cachedData.listings = action.payload;
+    });
+    builder.addCase(getOfflineListings.rejected, (state, action) => {
+      state.loading = false;
+      state.error = action.payload;
+    });
+
+    // Save transaction
+    builder.addCase(saveTransaction.pending, (state) => {
+      state.loading = true;
+    });
+    builder.addCase(saveTransaction.fulfilled, (state, action) => {
+      state.loading = false;
+      state.cachedData.transactions.push(action.payload);
+    });
+    builder.addCase(saveTransaction.rejected, (state, action) => {
+      state.loading = false;
+      state.error = action.payload;
+    });
+
+    // Get offline transactions
+    builder.addCase(getOfflineTransactions.pending, (state) => {
+      state.loading = true;
+    });
+    builder.addCase(getOfflineTransactions.fulfilled, (state, action) => {
+      state.loading = false;
+      state.cachedData.transactions = action.payload;
+    });
+    builder.addCase(getOfflineTransactions.rejected, (state, action) => {
+      state.loading = false;
+      state.error = action.payload;
+    });
+
+    // Add to sync queue
+    builder.addCase(addToSyncQueue.fulfilled, (state) => {
+      state.syncStatus.pendingSyncItems++;
+    });
+
+    // Process sync queue
+    builder.addCase(processSyncQueue.pending, (state) => {
+      state.syncStatus.isSyncing = true;
+      state.syncStatus.lastSyncAttempt = Date.now();
+    });
+    builder.addCase(processSyncQueue.fulfilled, (state, action) => {
+      state.syncStatus.isSyncing = false;
+      state.syncStatus.pendingSyncItems -= action.payload.success.length;
+      state.syncStatus.lastSuccessfulSync = Date.now();
+    });
+    builder.addCase(processSyncQueue.rejected, (state) => {
+      state.syncStatus.isSyncing = false;
+    });
+
+    // Market prices
+    builder.addCase(cacheMarketPrices.fulfilled, (state, action) => {
+      state.cachedData.marketPrices = action.payload;
+    });
+    builder.addCase(getOfflineMarketPrices.fulfilled, (state, action) => {
+      state.cachedData.marketPrices = action.payload;
+    });
+  }
+});
+
+// Export actions and reducer
+export const { setOfflineMode, setInitialized } = offlineDataSlice.actions;
+export default offlineDataSlice.reducer;
+
+// Helper function to initialize the offline functionality
+export const initializeOfflineSupport = () => async (dispatch) => {
+  try {
+    await dbPromise;
+
+    // Set up network status listeners
+    networkService.initializeListeners((isOnline) => {
+      dispatch(setOfflineMode(!isOnline));
+
+      // Attempt to sync when coming back online
+      if (isOnline) {
+        dispatch(processSyncQueue());
+      }
+    });
+
+    // Load cached data
+    dispatch(getOfflineListings());
+    dispatch(getOfflineTransactions());
+    dispatch(getOfflineMarketPrices());
+
+    dispatch(setInitialized(true));
+  } catch (error) {
+    console.error('Failed to initialize offline support:', error);
+  }
+};
+
+// Service for checking pending changes
+export const hasPendingChanges = async () => {
+  try {
+    const db = await dbPromise;
+    const count = await db.count('syncQueue');
+    return count > 0;
+  } catch (error) {
+    console.error('Error checking pending changes:', error);
+    return false;
+  }
+};

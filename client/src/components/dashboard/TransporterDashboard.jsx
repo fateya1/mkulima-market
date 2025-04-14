@@ -1,0 +1,410 @@
+import React, { useState } from 'react';
+import { MapPin, Truck, Calendar, Clock, DollarSign, Navigation, Package, Star, RefreshCw, CheckCircle, AlertTriangle } from 'lucide-react';
+
+const TransporterDashboard = () => {
+  const [activeTab, setActiveTab] = useState('opportunities');
+
+  // Mock data for transport opportunities
+  const transportOpportunities = [
+    {
+      id: 1,
+      pickup: 'Nakuru Town',
+      destination: 'Nairobi Market',
+      distance: '160 km',
+      product: 'Potatoes',
+      quantity: '1.5 tons',
+      date: '2025-04-15',
+      time: '08:00 AM',
+      price: 'KES 4,500',
+      status: 'available',
+    },
+    {
+      id: 2,
+      pickup: 'Machakos Central',
+      destination: 'Nairobi Market',
+      distance: '65 km',
+      product: 'Mangoes',
+      quantity: '800 kg',
+      date: '2025-04-15',
+      time: '09:30 AM',
+      price: 'KES 2,800',
+      status: 'available',
+    },
+    {
+      id: 3,
+      pickup: 'Kakamega Town',
+      destination: 'Kisumu Market',
+      distance: '42 km',
+      product: 'Maize',
+      quantity: '2 tons',
+      date: '2025-04-16',
+      time: '07:00 AM',
+      price: 'KES 3,200',
+      status: 'available',
+    }
+  ];
+
+  // Mock data for current trips
+  const currentTrips = [
+    {
+      id: 101,
+      pickup: 'Kiambu Farms',
+      destination: 'Nairobi Wholesale Market',
+      distance: '28 km',
+      product: 'Vegetables',
+      quantity: '1.2 tons',
+      date: '2025-04-14',
+      time: '10:00 AM',
+      price: 'KES 2,200',
+      status: 'in-progress',
+      progress: 'En route to pickup',
+    }
+  ];
+
+  // Mock data for trip history
+  const tripHistory = [
+    {
+      id: 201,
+      pickup: 'Nakuru Central',
+      destination: 'Naivasha Market',
+      distance: '85 km',
+      product: 'Potatoes',
+      quantity: '1.8 tons',
+      date: '2025-04-10',
+      price: 'KES 4,000',
+      status: 'completed',
+      rating: 4.8,
+    },
+    {
+      id: 202,
+      pickup: 'Meru Town',
+      destination: 'Nairobi Market',
+      distance: '175 km',
+      product: 'Bananas',
+      quantity: '2 tons',
+      date: '2025-04-08',
+      price: 'KES 6,500',
+      status: 'completed',
+      rating: 4.5,
+    },
+    {
+      id: 203,
+      pickup: 'Thika Farms',
+      destination: 'Juja Collection Point',
+      distance: '15 km',
+      product: 'Tomatoes',
+      quantity: '600 kg',
+      date: '2025-04-07',
+      price: 'KES 1,800',
+      status: 'completed',
+      rating: 5.0,
+    }
+  ];
+
+  // Mock data for return trips
+  const returnTrips = [
+    {
+      id: 301,
+      origin: 'Nairobi Market',
+      destination: 'Nakuru',
+      distance: '160 km',
+      date: '2025-04-15',
+      time: '02:00 PM',
+      status: 'available',
+    },
+    {
+      id: 302,
+      origin: 'Kisumu Market',
+      destination: 'Kakamega',
+      distance: '42 km',
+      date: '2025-04-16',
+      time: '02:00 PM',
+      status: 'available',
+    }
+  ];
+
+  // Helper function to render opportunity cards
+  const renderOpportunityCard = (opportunity) => (
+    <div key={opportunity.id} className="bg-white p-4 rounded-lg shadow mb-4 border-l-4 border-green-500">
+      <div className="flex justify-between items-start">
+        <div>
+          <div className="flex items-center text-lg font-semibold text-gray-800">
+            <MapPin className="h-5 w-5 text-green-600 mr-2" />
+            {opportunity.pickup} to {opportunity.destination}
+          </div>
+          <div className="text-sm text-gray-500 mt-1">{opportunity.distance}</div>
+        </div>
+        <div className="bg-green-100 text-green-800 text-xs font-semibold px-2 py-1 rounded">
+          Available
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 mt-3">
+        <div className="flex items-center text-sm">
+          <Package className="h-4 w-4 text-gray-500 mr-1" />
+          <span>{opportunity.product}, {opportunity.quantity}</span>
+        </div>
+        <div className="flex items-center text-sm">
+          <Calendar className="h-4 w-4 text-gray-500 mr-1" />
+          <span>{opportunity.date}</span>
+        </div>
+        <div className="flex items-center text-sm">
+          <Clock className="h-4 w-4 text-gray-500 mr-1" />
+          <span>{opportunity.time}</span>
+        </div>
+        <div className="flex items-center text-sm">
+          <DollarSign className="h-4 w-4 text-gray-500 mr-1" />
+          <span>{opportunity.price}</span>
+        </div>
+      </div>
+
+      <div className="mt-4 flex space-x-2">
+        <button className="bg-green-600 text-white py-2 px-4 rounded text-sm font-medium flex-1 flex justify-center items-center">
+          <Truck className="h-4 w-4 mr-1" /> Accept Trip
+        </button>
+        <button className="bg-white text-gray-700 border border-gray-300 py-2 px-4 rounded text-sm font-medium flex-1 flex justify-center items-center">
+          View Details
+        </button>
+      </div>
+    </div>
+  );
+
+  // Helper function to render current trip cards
+  const renderCurrentTripCard = (trip) => (
+    <div key={trip.id} className="bg-white p-4 rounded-lg shadow mb-4 border-l-4 border-blue-500">
+      <div className="flex justify-between items-start">
+        <div>
+          <div className="flex items-center text-lg font-semibold text-gray-800">
+            <MapPin className="h-5 w-5 text-blue-600 mr-2" />
+            {trip.pickup} to {trip.destination}
+          </div>
+          <div className="text-sm text-gray-500 mt-1">{trip.distance}</div>
+        </div>
+        <div className="bg-blue-100 text-blue-800 text-xs font-semibold px-2 py-1 rounded">
+          In Progress
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 mt-3">
+        <div className="flex items-center text-sm">
+          <Package className="h-4 w-4 text-gray-500 mr-1" />
+          <span>{trip.product}, {trip.quantity}</span>
+        </div>
+        <div className="flex items-center text-sm">
+          <Calendar className="h-4 w-4 text-gray-500 mr-1" />
+          <span>{trip.date}</span>
+        </div>
+        <div className="flex items-center text-sm">
+          <Clock className="h-4 w-4 text-gray-500 mr-1" />
+          <span>{trip.time}</span>
+        </div>
+        <div className="flex items-center text-sm">
+          <DollarSign className="h-4 w-4 text-gray-500 mr-1" />
+          <span>{trip.price}</span>
+        </div>
+      </div>
+
+      <div className="mt-3 bg-blue-50 p-2 rounded text-sm flex items-center">
+        <RefreshCw className="h-4 w-4 text-blue-500 mr-2" />
+        <span className="text-blue-700">{trip.progress}</span>
+      </div>
+
+      <div className="mt-4 flex space-x-2">
+        <button className="bg-blue-600 text-white py-2 px-4 rounded text-sm font-medium flex-1 flex justify-center items-center">
+          <Navigation className="h-4 w-4 mr-1" /> Navigate
+        </button>
+        <button className="bg-green-600 text-white py-2 px-4 rounded text-sm font-medium flex-1 flex justify-center items-center">
+          <CheckCircle className="h-4 w-4 mr-1" /> Update Status
+        </button>
+      </div>
+    </div>
+  );
+
+  // Helper function to render trip history cards
+  const renderHistoryCard = (trip) => (
+    <div key={trip.id} className="bg-white p-4 rounded-lg shadow mb-4 border-l-4 border-gray-300">
+      <div className="flex justify-between items-start">
+        <div>
+          <div className="flex items-center text-lg font-semibold text-gray-800">
+            <MapPin className="h-5 w-5 text-gray-600 mr-2" />
+            {trip.pickup} to {trip.destination}
+          </div>
+          <div className="text-sm text-gray-500 mt-1">{trip.distance}</div>
+        </div>
+        <div className="bg-gray-100 text-gray-800 text-xs font-semibold px-2 py-1 rounded">
+          Completed
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 mt-3">
+        <div className="flex items-center text-sm">
+          <Package className="h-4 w-4 text-gray-500 mr-1" />
+          <span>{trip.product}, {trip.quantity}</span>
+        </div>
+        <div className="flex items-center text-sm">
+          <Calendar className="h-4 w-4 text-gray-500 mr-1" />
+          <span>{trip.date}</span>
+        </div>
+        <div className="flex items-center text-sm">
+          <Star className="h-4 w-4 text-yellow-500 mr-1" />
+          <span>{trip.rating} Rating</span>
+        </div>
+        <div className="flex items-center text-sm">
+          <DollarSign className="h-4 w-4 text-gray-500 mr-1" />
+          <span>{trip.price}</span>
+        </div>
+      </div>
+    </div>
+  );
+
+  // Helper function to render return trip opportunities
+  const renderReturnTripCard = (trip) => (
+    <div key={trip.id} className="bg-white p-4 rounded-lg shadow mb-4 border-l-4 border-yellow-500">
+      <div className="flex justify-between items-start">
+        <div>
+          <div className="flex items-center text-lg font-semibold text-gray-800">
+            <RefreshCw className="h-5 w-5 text-yellow-600 mr-2" />
+            {trip.origin} to {trip.destination}
+          </div>
+          <div className="text-sm text-gray-500 mt-1">{trip.distance}</div>
+        </div>
+        <div className="bg-yellow-100 text-yellow-800 text-xs font-semibold px-2 py-1 rounded">
+          Return Trip
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 mt-3">
+        <div className="flex items-center text-sm">
+          <Calendar className="h-4 w-4 text-gray-500 mr-1" />
+          <span>{trip.date}</span>
+        </div>
+        <div className="flex items-center text-sm">
+          <Clock className="h-4 w-4 text-gray-500 mr-1" />
+          <span>{trip.time}</span>
+        </div>
+      </div>
+
+      <div className="mt-3 bg-yellow-50 p-2 rounded text-sm flex items-center">
+        <AlertTriangle className="h-4 w-4 text-yellow-500 mr-2" />
+        <span className="text-yellow-700">Avoid empty return - find a load!</span>
+      </div>
+
+      <div className="mt-4 flex space-x-2">
+        <button className="bg-yellow-600 text-white py-2 px-4 rounded text-sm font-medium flex-1 flex justify-center items-center">
+          <Truck className="h-4 w-4 mr-1" /> Find Loads
+        </button>
+      </div>
+    </div>
+  );
+
+  // Render dashboard content based on active tab
+  const renderContent = () => {
+    switch (activeTab) {
+      case 'opportunities':
+        return (
+          <div>
+            <h2 className="text-lg font-semibold mb-4">Available Opportunities</h2>
+            {transportOpportunities.map(renderOpportunityCard)}
+          </div>
+        );
+      case 'current':
+        return (
+          <div>
+            <h2 className="text-lg font-semibold mb-4">Current Trips</h2>
+            {currentTrips.length > 0 ?
+              currentTrips.map(renderCurrentTripCard) :
+              <div className="bg-blue-50 p-4 rounded text-center">
+                <p className="text-blue-700">No active trips at the moment.</p>
+                <p className="text-sm text-blue-600 mt-1">Check opportunities to find new trips.</p>
+              </div>
+            }
+          </div>
+        );
+      case 'history':
+        return (
+          <div>
+            <h2 className="text-lg font-semibold mb-4">Trip History</h2>
+            {tripHistory.map(renderHistoryCard)}
+          </div>
+        );
+      case 'returns':
+        return (
+          <div>
+            <h2 className="text-lg font-semibold mb-4">Return Trip Opportunities</h2>
+            {returnTrips.map(renderReturnTripCard)}
+          </div>
+        );
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <div className="bg-gray-100 min-h-screen">
+      {/* Header */}
+      <header className="bg-green-700 text-white p-4">
+        <div className="container mx-auto">
+          <h1 className="text-xl font-bold">MkulimaMarket</h1>
+          <p className="text-sm text-green-100">Transporter Dashboard</p>
+        </div>
+      </header>
+
+      {/* Stats Summary */}
+      <div className="container mx-auto px-4 py-4">
+        <div className="bg-white rounded-lg shadow p-4 grid grid-cols-4 gap-4 mb-6">
+          <div className="text-center">
+            <p className="text-xs text-gray-500 uppercase">Available Trips</p>
+            <p className="text-2xl font-bold text-green-600">{transportOpportunities.length}</p>
+          </div>
+          <div className="text-center">
+            <p className="text-xs text-gray-500 uppercase">Active Trips</p>
+            <p className="text-2xl font-bold text-blue-600">{currentTrips.length}</p>
+          </div>
+          <div className="text-center">
+            <p className="text-xs text-gray-500 uppercase">Return Trips</p>
+            <p className="text-2xl font-bold text-yellow-600">{returnTrips.length}</p>
+          </div>
+          <div className="text-center">
+            <p className="text-xs text-gray-500 uppercase">Average Rating</p>
+            <p className="text-2xl font-bold text-purple-600">4.8</p>
+          </div>
+        </div>
+
+        {/* Navigation Tabs */}
+        <div className="flex mb-4 border-b">
+          <button
+            className={`py-2 px-4 font-medium text-sm ${activeTab === 'opportunities' ? 'text-green-600 border-b-2 border-green-600' : 'text-gray-600'}`}
+            onClick={() => setActiveTab('opportunities')}
+          >
+            Opportunities
+          </button>
+          <button
+            className={`py-2 px-4 font-medium text-sm ${activeTab === 'current' ? 'text-green-600 border-b-2 border-green-600' : 'text-gray-600'}`}
+            onClick={() => setActiveTab('current')}
+          >
+            Current Trips
+          </button>
+          <button
+            className={`py-2 px-4 font-medium text-sm ${activeTab === 'history' ? 'text-green-600 border-b-2 border-green-600' : 'text-gray-600'}`}
+            onClick={() => setActiveTab('history')}
+          >
+            Trip History
+          </button>
+          <button
+            className={`py-2 px-4 font-medium text-sm ${activeTab === 'returns' ? 'text-green-600 border-b-2 border-green-600' : 'text-gray-600'}`}
+            onClick={() => setActiveTab('returns')}
+          >
+            Return Trips
+          </button>
+        </div>
+
+        {/* Main Content */}
+        <div>
+          {renderContent()}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default TransporterDashboard;

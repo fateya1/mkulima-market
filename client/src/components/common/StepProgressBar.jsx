@@ -1,0 +1,91 @@
+// StepProgressBar.jsx - Progress indicator for multi-step forms
+import React from "react";
+
+/**
+ * Step Progress Bar component for tracking progress in multi-step forms
+ * Used in the product listing creation flow as shown in MkulimaMarket wireframes
+ */
+const StepProgressBar = ({ steps, currentStep, onStepClick }) => {
+  return (
+    <div className="w-full py-4">
+      <div className="flex justify-between items-center mb-2">
+        {steps.map((step, index) => {
+          // Determine step status
+          const isCompleted = index < currentStep;
+          const isCurrent = index === currentStep;
+          const isClickable = isCompleted && onStepClick;
+
+          return (
+            <div
+              key={index}
+              className="flex flex-col items-center relative"
+              onClick={() => isClickable && onStepClick(index)}
+            >
+              {/* Step number circle */}
+              <div
+                className={`
+                  w-10 h-10 rounded-full flex items-center justify-center font-bold text-lg
+                  ${isCompleted ? "bg-green-600 text-white" : ""}
+                  ${isCurrent ? "bg-green-700 text-white ring-4 ring-green-100" : ""}
+                  ${!isCompleted && !isCurrent ? "bg-gray-200 text-gray-500" : ""}
+                  ${isClickable ? "cursor-pointer" : ""}
+                `}
+              >
+                {isCompleted ? (
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="h-6 w-6"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M5 13l4 4L19 7"
+                    />
+                  </svg>
+                ) : (
+                  index + 1
+                )}
+              </div>
+
+              {/* Step name */}
+              <div
+                className={`
+                mt-2 text-xs sm:text-sm font-medium
+                ${isCurrent ? "text-green-700" : ""}
+                ${isCompleted ? "text-green-600" : ""}
+                ${!isCompleted && !isCurrent ? "text-gray-500" : ""}
+              `}
+              >
+                {step}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Progress line */}
+      <div className="relative w-full mt-1">
+        <div className="absolute h-1 bg-gray-200 w-full"></div>
+        <div
+          className="absolute h-1 bg-green-600 transition-all duration-300"
+          style={{
+            width: `${(currentStep / (steps.length - 1)) * 100}%`,
+          }}
+        ></div>
+      </div>
+    </div>
+  );
+};
+
+// Default steps based on the MkulimaMarket product listing flow
+StepProgressBar.defaultProps = {
+  steps: ["Product Details", "Quality & Price", "Location", "Photos & Review"],
+  currentStep: 0,
+  onStepClick: null, // If null, steps are not clickable
+};
+
+export default StepProgressBar;

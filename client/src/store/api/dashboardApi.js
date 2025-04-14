@@ -1,0 +1,157 @@
+/**
+ * Dashboard API for MkulimaMarket
+ * Provides data fetching functionality for different user dashboards
+ */
+
+// Base API URL
+const API_BASE_URL = 'https://api.mkulimamarket.co.ke/v1';
+
+/**
+ * Fetch farmer dashboard data
+ * @param {string} farmerId - The farmer's ID
+ * @returns {Promise<Object>} Farmer dashboard data
+ */
+export const fetchFarmerDashboardData = async (farmerId) => {
+  try {
+    const [listingsResponse, transactionsResponse, priceDataResponse] = await Promise.all([
+      fetch(`${API_BASE_URL}/farmers/${farmerId}/listings`),
+      fetch(`${API_BASE_URL}/farmers/${farmerId}/transactions`),
+      fetch(`${API_BASE_URL}/market-prices?crops=maize,beans,potatoes,tomatoes,kales`)
+    ]);
+
+    if (!listingsResponse.ok || !transactionsResponse.ok || !priceDataResponse.ok) {
+      throw new Error('Failed to fetch farmer dashboard data');
+    }
+
+    const listings = await listingsResponse.json();
+    const transactions = await transactionsResponse.json();
+    const priceData = await priceDataResponse.json();
+
+    // Calculate additional metrics
+    const activeListings = listings.filter(listing => listing.status === 'active');
+    const completedTransactions = transactions.filter(tx => tx.status === 'completed');
+    const totalRevenue = completedTransactions.reduce((sum, tx) => sum + tx.total_amount, 0);
+
+    // Get pending transactions
+    const pendingTransactions = transactions.filter(tx => ['initiated', 'agreed', 'in_progress'].includes(tx.status));
+
+    return {
+      activeListings,
+      completedTransactions,
+      pendingTransactions,
+      totalRevenue,
+      priceData,
+      listingStats: {
+        total: listings.length,
+        active: activeListings.length,
+        sold: listings.filter(listing => listing.status === 'sold').length,
+        expired: listings.filter(listing => listing.status === 'expired').length
+      }
+    };
+  } catch (error) {
+    console.error('Error fetching farmer dashboard data:', error);
+    throw error;
+  }
+};
+
+/**
+ * Fetch buyer dashboard data
+ * @param {string} buyerId - The buyer's ID
+ * @returns {Promise<Object>} Buyer dashboard data
+ */
+export const fetchBuyerDashboardData = async (buyerId) => {
+  try {
+    const [transactionsResponse, suppliersResponse, listingsResponse] = await Promise.all([
+      fetch(`${API_BASE_URL}/buyers/${buyerId}/transactions`),
+      fetch(`${API_BASE_URL}/buyers/${buyerId}/suppliers`),
+      fetch(`${API_BASE_URL}/listings?status=active`)
+    ]);
+
+    if (!transactionsResponse.ok || !suppliersResponse.ok || !listingsResponse.ok) {
+      throw new Error('Failed to fetch buyer dashboard data');
+    }
+
+    const transactions = await transactionsResponse.json();
+    const suppliers = await suppliersResponse.json();
+    const availableListings = await listingsResponse.json();
+
+    // Calculate additional metrics
+    const completedPurchases = transactions.filter(tx => tx.status === 'completed');
+    const pendingTransactions = transactions.filter(tx => ['initiated', 'agreed', 'in_progress'].includes(tx.status));
+    const totalSpent = completedPurchases.reduce((sum, tx) => sum + tx.total_amount, 0);
+
+    // Get recent suppliers interacted with
+    const recentSuppliers = suppliers.slice(0, 5);
+
+    // Get recommended listings based on buyer's purchase history
+    const recommendedListings = availableListings.slice(0, 10);
+
+    return {
+      completedPurchases,
+      pendingTransactions,
+      totalSpent,
+      suppliers: {
+        total: suppliers.length,
+        recent: recentSuppliers
+      },
+      recommendedListings,
+      purchaseStats: {
+        total: transactions.length,
+        completed: completedPurchases.length,
+        inProgress: transactions.filter(tx => tx.status === 'in_progress').length,
+        cancelled: transactions.filter(tx => tx.status === 'cancelled').length
+      }
+    };
+  } catch (error) {
+    console.error('Error fetching buyer dashboard data:', error);
+    throw error;
+  }
+};
+
+/**
+ * Fetch transporter dashboard data
+ * @param {string} transporterId - The transporter's ID
+ * @returns {Promise<Object>} Transporter dashboard data
+ */
+export const fetchTransporterDashboardData = async (transporterId) => {
+  try {
+    const [deliveriesResponse, opportunitiesResponse, transportRequestsResponse] = await Promise.all([
+      fetch(`${API_BASE_URL}/transporters/${transporterId}/deliveries`),
+      fetch(`${API_BASE_URL}/transporters/opportunities?radius=50`),
+      fetch(`${API_BASE_URL}/transport-requests?status=open`)
+    ]);
+
+    if (!deliveriesResponse.ok || !opportunitiesResponse.ok || !transportRequestsResponse.ok) {
+      throw new Error('Failed to fetch transporter dashboard data');
+    }
+
+    const deliveries = await deliveriesResponse.json();
+    const opportunities = await opportunitiesResponse.json();
+    const transportRequests = await transportRequestsResponse.json();
+
+    // Calculate additional metrics
+    const completedDeliveries = deliveries.filter(d => d.status === 'completed');
+    const pendingDeliveries = deliveries.filter(d => ['accepted', 'in_progress'].includes(d.status));
+    const totalEarnings = completedDeliveries.reduce((sum, d) => sum + d.fare, 0);
+
+    // Get nearby opportunities
+    const nearbyOpportunities = opportunities.slice(0, 10);
+
+    return {
+      completedDeliveries,
+      pendingDeliveries,
+      totalEarnings,
+      nearbyOpportunities,
+      transportRequests,
+      deliveryStats: {
+        total: deliveries.length,
+        completed: completedDeliveries.length,
+        inProgress: deliveries.filter(d => d.status === 'in_progress').length,
+        cancelled: deliveries.filter(d => d.status === 'cancelled').length
+      }
+    };
+  } catch (error) {
+    console.error('Error fetching transporter dashboard data:', error);
+    throw error;
+  }
+};

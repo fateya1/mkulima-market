@@ -1,0 +1,264 @@
+/**
+ * MkulimaMarket - Network Service
+ * 
+ * This service handles network status detection and management,
+ * providing reliable connection status information for the app
+ * to adapt to varying connectivity conditions in rural areas.
+ */
+
+// Initial network state
+let networkState = {
+  isOnline: navigator.onLine,
+  connectionType: null,
+  effectiveConnectionType: null,
+  downlink: null,
+  rtt: null,
+  lastChecked: Date.now()
+};
+
+// List of registered callbacks
+const listeners = [];
+
+/**
+ * Initialize network connection information
+ */
+const initConnectionInfo = () => {
+  if ('connection' in navigator) {
+    const connection = navigator.connection;
+
+    networkState = {
+      ...networkState,
+      connectionType: connection.type,
+      effectiveConnectionType: connection.effectiveType,
+      downlink: connection.downlink,
+      rtt: connection.rtt
+    };
+
+    // Listen for connection changes
+    connection.addEventListener('change', updateConnectionInfo);
+  }
+};
+
+/**
+ * Update connection information when network changes
+ */
+const updateConnectionInfo = () => {
+  if ('connection' in navigator) {
+    const connection = navigator.connection;
+
+    const oldNetworkState = { ...networkState };
+
+    networkState = {
+      ...networkState,
+      isOnline: navigator.onLine,
+      connectionType: connection.type,
+      effectiveConnectionType: connection.effectiveType,
+      downlink: connection.downlink,
+      rtt: connection.rtt,
+      lastChecked: Date.now()
+    };
+
+    // Notify listeners if online status has changed
+    if (oldNetworkState.isOnline !== networkState.isOnline) {
+      notifyListeners(networkState.isOnline);
+    }
+  } else {
+    // Fallback for browsers without NetworkInformation API
+    networkState = {
+      ...networkState,
+      isOnline: navigator.onLine,
+      lastChecked: Date.now()
+    };
+
+    // Notify listeners of the change
+    notifyListeners(networkState.isOnline);
+  }
+};
+
+/**
+ * Notify all registered listeners about network status changes
+ * @param {boolean} isOnline - Current online status
+ */
+const notifyListeners = (isOnline) => {
+  listeners.forEach(callback => {
+    try {
+      callback(isOnline);
+    } catch (error) {
+      console.error('Error in network status listener:', error);
+    }
+  });
+};
+
+/**
+ * Perform a connectivity check by sending a small request to the server
+ * This helps detect situations where the browser thinks it's online but
+ * the connection is not actually working (e.g., captive portals, poor signal)
+ * @returns {Promise<boolean>} True if connectivity check succeeds
+ */
+const checkConnectivity = async () => {
+  if (!navigator.onLine) {
+    return false;
+  }
+
+  try {
+    // Use a minimal endpoint that doesn't count against API rate limits
+    // Add timestamp to prevent caching
+    const response = await fetch(`/api/health-check?t=${Date.now()}`, {
+      method: 'HEAD',
+      mode: 'no-cors',
+      cache: 'no-store',
+      timeout: 5000 // 5 second timeout
+    });
+
+    // Update last successful check time
+    networkState.lastChecked = Date.now();
+    networkState.isOnline = true;
+
+    return true;
+  } catch (error) {
+    console.warn('Connectivity check failed:', error);
+
+    // Browser might report online, but connectivity check failed
+    // Only update our internal state, don't override navigator.onLine
+    networkState.isOnline = false;
+
+    // Notify listeners of the actual status
+    notifyListeners(false);
+
+    return false;
+  }
+};
+
+/**
+ * Initialize network service and set up event listeners
+ * @param {Function} statusChangeCallback - Callback for connection status changes
+ */
+const initializeListeners = (statusChangeCallback) => {
+  // Initialize connection info
+  initConnectionInfo();
+
+  // Register the callback if provided
+  if (statusChangeCallback) {
+    listeners.push(statusChangeCallback);
+
+    // Call it once with current status
+    statusChangeCallback(networkState.isOnline);
+  }
+
+  // Add event listeners for online/offline events
+  window.addEventListener('online', () => {
+    // When the browser detects we're back online, verify with a connectivity check
+    checkConnectivity().then(isOnline => {
+      if (isOnline) {
+        networkState.isOnline = true;
+        notifyListeners(true);
+      }
+    });
+  });
+
+  window.addEventListener('offline', () => {
+    networkState.isOnline = false;
+    notifyListeners(false);
+  });
+
+  // Perform initial connectivity check
+  checkConnectivity();
+
+  // Set up periodic connectivity checks (every 30 seconds when the app is active)
+  let periodicCheckInterval;
+
+  // Start checks when the page is visible
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      // Clear any existing interval
+      if (periodicCheckInterval) {
+        clearInterval(periodicCheckInterval);
+      }
+
+      // Start new interval
+      periodicCheckInterval = setInterval(() => {
+        checkConnectivity();
+      }, 30000);
+
+      // Initial check when becoming visible
+      checkConnectivity();
+    } else {
+      // Clear interval when page is not visible
+      if (periodicCheckInterval) {
+        clearInterval(periodicCheckInterval);
+        periodicCheckInterval = null;
+      }
+    }
+  });
+
+  // If the page is already visible, start checks immediately
+  if (document.visibilityState === 'visible') {
+    periodicCheckInterval = setInterval(() => {
+      checkConnectivity();
+    }, 30000);
+  }
+};
+
+/**
+ * Check if connection is slow based on effective connection type
+ * @returns {boolean} True if connection is considered slow
+ */
+const isConnectionSlow = () => {
+  if (!networkState.isOnline) return true;
+
+  // Consider slow if using 2G or slow-3G
+  if (networkState.effectiveConnectionType) {
+    return ['slow-2g', '2g', 'slow-3g'].includes(networkState.effectiveConnectionType);
+  }
+
+  // Fallback check based on downlink if available
+  if (networkState.downlink) {
+    return networkState.downlink < 0.5; // Less than 0.5 Mbps is considered slow
+  }
+
+  return false;
+};
+
+/**
+ * Get recommended data saving mode based on connection
+ * @returns {boolean} True if data saving is recommended
+ */
+const shouldUseLowDataMode = () => {
+  if (!networkState.isOnline) return true;
+
+  // Check effective connection type first
+  if (networkState.effectiveConnectionType) {
+    return ['slow-2g', '2g', 'slow-3g'].includes(networkState.effectiveConnectionType);
+  }
+
+  // Check downlink if available
+  if (networkState.downlink) {
+    return networkState.downlink < 1.0; // Less than 1 Mbps
+  }
+
+  return false;
+};
+
+/**
+ * Remove a previously registered listener
+ * @param {Function} callback - The callback to remove
+ */
+const removeListener = (callback) => {
+  const index = listeners.indexOf(callback);
+  if (index !== -1) {
+    listeners.splice(index, 1);
+  }
+};
+
+// Export the network service
+const networkService = {
+  initializeListeners,
+  removeListener,
+  checkConnectivity,
+  isOnline: () => networkState.isOnline,
+  isConnectionSlow,
+  shouldUseLowDataMode,
+  getNetworkState: () => ({ ...networkState })
+};
+
+export { networkService };
